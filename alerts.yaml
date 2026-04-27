@@ -352,7 +352,7 @@ alerts:
 # ─── NOTIFICATIONS ──────────────────────────────────────────────────
 notifications:
 
-  ntfy_topic: "trackee-tcg-rdkj42-secrer"
+  ntfy_topic: ""
 
   telegram_bot_token: ""
   telegram_chat_id: ""

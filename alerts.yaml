@@ -2,6 +2,106 @@
 #  alerts.yaml — OPCG Tracker (corrigé)
 # ════════════════════════════════════════════════════════════════════
 
+# ─── RÉFÉRENCES CARDMARKET (lookup automatique) ─────────────────────
+# Le tracker détecte le code de set (OP-12, EB-02…) et la langue (FR/EN/JP)
+# dans le titre du produit, puis cherche l'URL Cardmarket correspondante
+# dans cette table. Si trouvée, le prix CM est inclus dans la notification
+# pour comparaison directe.
+#
+# Pré-rempli automatiquement depuis l'export Cardmarket pour 22 sets
+# (OP-01 à OP-18, EB-01, EB-02, PRB-01, PRB-02).
+#
+# Note : Cardmarket fait une seule fiche pour les langues européennes (FR/EN),
+# donc fr et en pointent vers la même URL. Pour le japonais, c'est une fiche
+# distincte avec suffixe '-Non-English' ou '-Asia-Region-Legal'.
+#
+# Pour ajouter un nouveau set quand il sortira sur Cardmarket :
+#   1. Sur www.cardmarket.com/fr/OnePiece, taper 'opXX booster box' (avec espace).
+#   2. Cliquer sur le résultat avec 'Booster Box' (et sans 'Non-English' pour FR/EN).
+#   3. Copier l'URL de la barre d'adresse → la coller dans la bonne ligne.
+
+cardmarket_lookups:
+
+  # ──────────────── Main sets (OP) ────────────────
+  "OP-01": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Romance-Dawn-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Romance-Dawn-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Romance-Dawn-Booster-Box-Non-English" }
+  "OP-02": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Paramount-War-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Paramount-War-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Paramount-War-Booster-Box-Non-English" }
+  "OP-03": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Pillars-of-Strength-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Pillars-of-Strength-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Pillars-of-Strength-Booster-Box-Non-English" }
+  "OP-04": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Kingdoms-of-Intrigue-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Kingdoms-of-Intrigue-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Kingdoms-of-Intrigue-Booster-Box-Non-English" }
+  "OP-05": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Awakening-of-the-New-Era-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Awakening-of-the-New-Era-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Awakening-of-the-New-Era-Booster-Box-Non-English" }
+  "OP-06": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Wings-of-the-Captain-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Wings-of-the-Captain-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Wings-of-the-Captain-Booster-Box-Asia-Region-Legal" }
+  "OP-07": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/500-Years-into-the-Future-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/500-Years-into-the-Future-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/500-Years-into-the-Future-Booster-Box-Non-English" }
+  "OP-08": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Two-Legends-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Two-Legends-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Two-Legends-Booster-Box-Non-English" }
+  "OP-09": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Emperors-in-the-New-World-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Emperors-in-the-New-World-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Emperors-in-the-New-World-Booster-Box-Non-English" }
+  "OP-10": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Royal-Blood-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Royal-Blood-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Royal-Blood-Booster-Box-Non-English" }
+  "OP-11": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/A-Fist-of-Divine-Speed-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/A-Fist-of-Divine-Speed-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/A-Fist-of-Divine-Speed-Booster-Box-Non-English" }
+  "OP-12": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box-Non-English" }
+  "OP-13": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box-Non-English" }
+  "OP-14": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box-Asia-Region-Legal" }
+  "OP-15": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box-Asia-Region-Legal" }
+  "OP-16": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP16-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP16-Booster-Box", jp: "" }
+  "OP-17": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Egghead-Crisis-Booster-Box-Asia-Region-Lega" }
+  "OP-18": { fr: "", en: "", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Adventure-on-Kamis-Island-Booster-Box-Asia-Region-Legal" }
+  "OP-19": { fr: "", en: "", jp: "" }
+  "OP-20": { fr: "", en: "", jp: "" }
+  "OP-21": { fr: "", en: "", jp: "" }
+  "OP-22": { fr: "", en: "", jp: "" }
+  "OP-23": { fr: "", en: "", jp: "" }
+  "OP-24": { fr: "", en: "", jp: "" }
+  "OP-25": { fr: "", en: "", jp: "" }
+  "OP-26": { fr: "", en: "", jp: "" }
+  "OP-27": { fr: "", en: "", jp: "" }
+  "OP-28": { fr: "", en: "", jp: "" }
+  "OP-29": { fr: "", en: "", jp: "" }
+  "OP-30": { fr: "", en: "", jp: "" }
+  "OP-31": { fr: "", en: "", jp: "" }
+  "OP-32": { fr: "", en: "", jp: "" }
+  "OP-33": { fr: "", en: "", jp: "" }
+  "OP-34": { fr: "", en: "", jp: "" }
+  "OP-35": { fr: "", en: "", jp: "" }
+
+  # ──────────────── Extra Boosters (EB) ────────────────
+  "EB-01": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box-Non-English" }
+  "EB-02": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box-Non-English" }
+  "EB-03": { fr: "", en: "", jp: "" }
+  "EB-04": { fr: "", en: "", jp: "" }
+  "EB-05": { fr: "", en: "", jp: "" }
+  "EB-06": { fr: "", en: "", jp: "" }
+  "EB-07": { fr: "", en: "", jp: "" }
+  "EB-08": { fr: "", en: "", jp: "" }
+  "EB-09": { fr: "", en: "", jp: "" }
+  "EB-10": { fr: "", en: "", jp: "" }
+  "EB-11": { fr: "", en: "", jp: "" }
+  "EB-12": { fr: "", en: "", jp: "" }
+  "EB-13": { fr: "", en: "", jp: "" }
+  "EB-14": { fr: "", en: "", jp: "" }
+  "EB-15": { fr: "", en: "", jp: "" }
+  "EB-16": { fr: "", en: "", jp: "" }
+  "EB-17": { fr: "", en: "", jp: "" }
+  "EB-18": { fr: "", en: "", jp: "" }
+  "EB-19": { fr: "", en: "", jp: "" }
+  "EB-20": { fr: "", en: "", jp: "" }
+  "EB-21": { fr: "", en: "", jp: "" }
+  "EB-22": { fr: "", en: "", jp: "" }
+  "EB-23": { fr: "", en: "", jp: "" }
+  "EB-24": { fr: "", en: "", jp: "" }
+  "EB-25": { fr: "", en: "", jp: "" }
+  "EB-26": { fr: "", en: "", jp: "" }
+  "EB-27": { fr: "", en: "", jp: "" }
+  "EB-28": { fr: "", en: "", jp: "" }
+  "EB-29": { fr: "", en: "", jp: "" }
+  "EB-30": { fr: "", en: "", jp: "" }
+
+  # ──────────────── Premium / The Best (PRB) ────────────────
+  "PRB-01": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Booster-Box-Non-English" }
+  "PRB-02": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Vol.2-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Vol.2-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Best-Vol.2-Booster-Box-Non-English" }
+  "PRB-03": { fr: "", en: "", jp: "" }
+  "PRB-04": { fr: "", en: "", jp: "" }
+  "PRB-05": { fr: "", en: "", jp: "" }
+  "PRB-06": { fr: "", en: "", jp: "" }
+  "PRB-07": { fr: "", en: "", jp: "" }
+  "PRB-08": { fr: "", en: "", jp: "" }
+  "PRB-09": { fr: "", en: "", jp: "" }
+  "PRB-10": { fr: "", en: "", jp: "" }
 # ─── SITES ──────────────────────────────────────────────────────────
 sites:
 
@@ -352,7 +452,7 @@ alerts:
 # ─── NOTIFICATIONS ──────────────────────────────────────────────────
 notifications:
 
-  ntfy_topic: ""
+  ntfy_topic: "trackee-tcg-rdkj42-secrer"
 
   telegram_bot_token: ""
   telegram_chat_id: ""

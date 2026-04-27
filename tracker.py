@@ -364,6 +364,92 @@ def fetch_cardmarket_ref(session, ref):
         return None
     return {"price": price, "label": ref.get("label", "Cardmarket"),
             "url": ref["url"]}
+
+# ──────────── Détection automatique du code de set + langue ────────────
+# Patterns pour détecter le code de set dans un titre :
+# OP-12, OP12, OP 12 → "OP-12"
+# EB-02, EB02 → "EB-02"
+# PRB-01, PRB01 → "PRB-01"
+# ST-25, ST25 → "ST-25"
+SET_CODE_RE = re.compile(
+    r"\b(OP|EB|PRB|ST)\s*[-_]?\s*(\d{1,2})\b",
+    re.IGNORECASE,
+)
+
+# Mots-clés indiquant la langue d'un produit dans son titre
+LANG_MARKERS = {
+    "jp": ["japonais", "japonaise", "japon", "japan", "jp ", " jp", "(jp)",
+           "version japonaise", "version jp", "jap "],
+    "en": ["english", "anglais", "anglaise", "(en)", " en ", "en/", "/en",
+           "version anglaise", "version english"],
+    # FR par défaut, on le met en dernier (reconnu si rien d'autre ne match)
+    "fr": ["français", "francais", "française", "francaise", "(fr)", " fr ",
+           "version française", "version francaise"],
+}
+
+def detect_set_and_language(title, site_priority=None):
+    """Détecte le code de set + la langue à partir du titre d'un produit.
+    Renvoie (set_code, lang) où set_code = 'OP-12'/'EB-02'/... ou None,
+    et lang = 'fr' / 'en' / 'jp'.
+    Si site_priority='JP', on assume JP par défaut quand la langue n'est pas
+    explicitée dans le titre (parce que les sites JP vendent du JP). Idem
+    si le site est FR, on assume FR par défaut."""
+    if not title:
+        return None, None
+
+    # 1) Code de set
+    m = SET_CODE_RE.search(title)
+    set_code = None
+    if m:
+        prefix = m.group(1).upper()
+        num = m.group(2).zfill(2)
+        set_code = f"{prefix}-{num}"
+
+    # 2) Langue : on cherche les marqueurs explicites
+    title_lower = title.lower()
+    detected_lang = None
+    for lang in ("jp", "en", "fr"):
+        for marker in LANG_MARKERS[lang]:
+            if marker in title_lower:
+                detected_lang = lang
+                break
+        if detected_lang:
+            break
+
+    # 3) Si rien de détecté, on devine selon la priorité du site
+    if not detected_lang:
+        if site_priority == "JP":
+            detected_lang = "jp"
+        else:
+            # Par défaut sur sites européens, on assume FR (le marché principal)
+            detected_lang = "fr"
+
+    return set_code, detected_lang
+
+def resolve_cm_ref(alert, listing, lookups, site_priority=None):
+    """Renvoie un cardmarket_ref ({url, label}) à utiliser pour cette notif.
+    Priorité :
+      1) alert.cardmarket_ref s'il est défini explicitement
+      2) lookup automatique via cardmarket_lookups[set_code][lang]
+      3) None (pas de comparaison CM dans la notif)"""
+    # Priorité 1 : ref explicite dans l'alerte
+    if alert.get("cardmarket_ref"):
+        return alert["cardmarket_ref"]
+
+    # Priorité 2 : lookup auto
+    if not lookups:
+        return None
+    set_code, lang = detect_set_and_language(listing.get("title", ""), site_priority)
+    if not set_code:
+        return None
+    entry = lookups.get(set_code)
+    if not entry:
+        return None
+    url = entry.get(lang) or entry.get("fr") or entry.get("en") or entry.get("jp")
+    if not url:
+        return None
+    label = f"CM {lang.upper()}"
+    return {"url": url, "label": label}
 def check_url(session, url, site_name):
     """Récupère titre + prix d'une fiche produit unique (OG / JSON-LD / fallback)."""
     try:
@@ -685,7 +771,7 @@ def send_notifications(config, alert, listing, kind, previous=None, cm_data=None
 def listing_id(listing):
     return hashlib.sha256(f"{listing['site']}::{listing['url']}".encode()).hexdigest()[:14]
 
-def process_alert(config, alert, listings, state, history, now_iso, cm_data=None):
+def process_alert(config, alert, listings, state, history, now_iso, get_cm_callable=None, sites_config=None):
     seen = state.setdefault("seen", {})
     fired = 0
     # Cooldown : configurable au niveau alerte ou globalement, défaut 24h
@@ -693,6 +779,7 @@ def process_alert(config, alert, listings, state, history, now_iso, cm_data=None
                            config.get("notify_cooldown_hours", DEFAULT_COOLDOWN_HOURS))
     cooldown_seconds = cooldown_h * 3600
     now_dt = datetime.now(timezone.utc)
+    lookups = config.get("cardmarket_lookups") or {}
 
     for listing in listings:
         if not matches(alert, listing):
@@ -750,6 +837,20 @@ def process_alert(config, alert, listings, state, history, now_iso, cm_data=None
             should_notify = False
 
         if should_notify:
+            # Résolution du Cardmarket ref pour CE listing précis (auto par set+langue)
+            cm_data = None
+            if get_cm_callable:
+                # Identifier la priorité du site pour deviner la langue par défaut
+                site_priority = None
+                if sites_config:
+                    for sid, scfg in sites_config.items():
+                        if scfg.get("name") == listing.get("site"):
+                            site_priority = scfg.get("priority")
+                            break
+                cm_ref = resolve_cm_ref(alert, listing, lookups, site_priority)
+                if cm_ref:
+                    cm_data = get_cm_callable(cm_ref)
+
             send_notifications(config, alert, listing, kind=kind,
                                previous=prev_for_msg, cm_data=cm_data)
             seen[akey]["last_notified"] = now_iso
@@ -845,7 +946,8 @@ def main():
 
             cm_data = get_cm(alert.get("cardmarket_ref"))
             fired = process_alert(config, alert, listings, state, history,
-                                  now_iso, cm_data=cm_data)
+                                  now_iso, get_cm_callable=get_cm,
+                                  sites_config=sites)
             total_fired += fired
             log(f"✓ {len(listings)} candidats, {fired} notif(s)", indent=1)
 

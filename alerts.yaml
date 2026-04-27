@@ -1,0 +1,365 @@
+# ════════════════════════════════════════════════════════════════════
+#  alerts.yaml — OPCG Tracker (corrigé)
+# ════════════════════════════════════════════════════════════════════
+
+# ─── SITES ──────────────────────────────────────────────────────────
+sites:
+
+  # ═════ Priorité AA ═════
+  parkage:
+    name: Parkage
+    priority: AA
+    category_url: "https://www.parkage.com/fr/one-piece-card-game"
+    platform: prestashop
+
+  # ═════ Priorité A ═════
+  baron_collections:
+    name: Baron Collections
+    priority: A
+    category_url: "https://baroncollections.fr/collections/nouveautes-de-la-boutique"
+    platform: shopify
+
+  le_coin_des_barons:
+    name: Le Coin des Barons
+    priority: A
+    category_url: "https://lecoindesbarons.com/les-tcg/cartes-onepiece/"
+    platform: woocommerce
+
+  lesgentlemendujeu:
+    name: Les Gentlemen du Jeu
+    priority: A
+    category_url: "https://lesgentlemendujeu.com/147-one-piece"
+    platform: prestashop
+
+  ludisphere:
+    name: Ludisphère
+    priority: A
+    category_url: "https://ludisphere.fr/collections/one-piece-card-game-precommande"
+    platform: shopify
+
+  # ═════ Priorité B ═════
+  destocktcg:
+    name: Destock TCG
+    priority: B
+    category_url: "https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/one-piece-card-game/"
+    platform: woocommerce
+
+  cardshunter:
+    name: Cards Hunter
+    priority: B
+    category_url: "https://www.cardshunter.fr/categorie-produit/autres-tcg/one-piece/one-piece-tcg-scelle/"
+    platform: woocommerce
+
+  masterset:
+    name: Masterset
+    priority: B
+    category_url: "https://masterset.store/collections/one-piece-tcg"
+    platform: shopify
+
+  guizette:
+    name: Guizette Family
+    priority: B
+    category_url: "https://www.guizettefamily.com/categorie/one-piece/"
+    platform: prestashop
+
+  mondes_fantastiques:
+    name: Mondes Fantastiques
+    priority: B
+    category_url: "https://www.mondes-fantastiques.com/5102234-one-piece-card-game"
+    platform: prestashop
+
+  tradingcardsxxx:
+    name: Trading Cards XXX
+    priority: B
+    category_url: "https://tradingcardsxxx.fr/collections/one-piece"
+    platform: shopify
+
+  mystic_ambre:
+    name: Mystic Ambre
+    priority: B
+    category_url: "https://www.mystic-ambre.fr/boutique/pre-commande/one-piece-pre-co/display-one-piece-fr/"
+    platform: prestashop
+
+  bacchusia:
+    name: Bacchusia
+    priority: B
+    category_url: "https://www.bacchusia-jeux.com/132-one-piece"
+    platform: prestashop
+
+  les7royaumes:
+    name: Les 7 Royaumes
+    priority: B
+    category_url: "https://les7royaumes.com/1000-one-piece"
+    platform: prestashop
+
+  ultrajeux:
+    name: Ultrajeux
+    priority: B
+    category_url: "https://www.ultrajeux.com/cat-1-1031-cartes-a-collectionner-one-piece-card-game.html"
+
+  # ═════ Priorité C ═════
+  bcd_jeux:
+    name: BCD Jeux
+    priority: C
+    category_url: "https://www.bcd-jeux.fr/511808-one-piece-tcg"
+    platform: prestashop
+
+  maison_presse:
+    name: Maison de la Presse
+    priority: C
+    category_url: "https://www.maisondelapresse.com/jeux-jouets/cartes-collectionner/cartes-one-piece.html"
+    platform: prestashop
+
+  king_jouet:
+    name: King Jouet
+    priority: C
+    category_url: "https://www.king-jouet.com/jeux-jouets/one-piece/asmodee-cartes-a-collectionner/page1.htm"
+
+  fantasysphere:
+    name: Fantasy Sphere
+    priority: C
+    category_url: "https://www.fantasysphere.net/jeux-de-cartes-a-collectionner/one-piece-tcg/"
+    platform: woocommerce
+
+  philibert:
+    name: Philibert
+    priority: C
+    category_url: "https://www.philibertnet.com/fr/15860-one-piece-le-jeu-de-cartes"
+    platform: prestashop
+
+  play_in:
+    name: Play-In
+    priority: C
+    category_url: "https://www.play-in.com/fr/gamme/24/one-piece/catalogue"
+
+  goupiya:
+    name: Goupiya
+    priority: C
+    category_url: "https://www.goupiya.com/fr/40222-one-piece"
+    platform: prestashop
+
+  ludiworld:
+    name: Ludiworld
+    priority: C
+    category_url: "https://www.ludiworld.com/1103-serie-op14"
+    platform: prestashop
+
+  oupi:
+    name: Oupi
+    priority: C
+    category_url: "https://oupi.eu/fr/413-precommande-one-piece"
+    platform: prestashop
+
+  poke_geek:
+    name: Poke Geek
+    priority: C
+    category_url: "https://www.poke-geek.fr/collections/coffret-one-piece"
+    platform: shopify
+
+  smartoys:
+    name: Smartoys
+    priority: C
+    category_url: "https://www.smartoys.be/catalog/category.php?cPath=1624"
+
+  tofopolis:
+    name: Tofopolis
+    priority: C
+    category_url: "https://www.tofopolis.com/50-one-piece"
+    platform: prestashop
+
+  investcollect:
+    name: Investcollect
+    priority: C
+    category_url: "https://investcollect.com/180-one-piece"
+
+  maxireves:
+    name: Maxi Rêves
+    priority: C
+    category_url: "https://maxireves.fr/selection-jeux/jeux-de-cartes-tcg/one-piece-tcg/"
+    platform: woocommerce
+
+  flevance:
+    name: Flevance
+    priority: C
+    category_url: "https://flevance.fr/collections/cartes-one-piece-boites-de-boosters"
+    platform: shopify
+
+  fantastik:
+    name: Fantastik
+    priority: C
+    category_url: "https://fantastik.fr/944-cartes-one-piece"
+    platform: prestashop
+
+  micromania:
+    name: Micromania
+    priority: C
+    category_url: "https://www.micromania.fr/cartes-one-piece.html"
+
+  espritjeu:
+    name: Esprit Jeu
+    priority: C
+    category_url: "https://www.espritjeu.com/cartes-et-jcc/one-piece-le-jeu-de-cartes.html"
+    platform: prestashop
+
+  fungamesnet:
+    name: Fungamesnet
+    priority: C
+    category_url: "https://fungamesnet.fr/844-one-piece-carte-a-collectionner"
+    platform: prestashop
+
+  ludocortex:
+    name: Ludocortex
+    priority: C
+    category_url: "https://www.ludocortex.fr/256-one-piece-tcg"
+    platform: prestashop
+
+  # ═════ Priorité D ═════
+  lerepaireducollectionneur:
+    name: Le Repaire du Collectionneur
+    category_url: "https://www.lerepaireducollectionneur.fr/collections/one-piece"
+    platform: shopify
+
+  # ═════ Imports Japon ═════
+  japanresell:
+    name: Japan Resell
+    priority: JP
+    category_url: "https://japanresell.fr/collections/one-piece-card-game"
+    platform: shopify
+
+  nippontcg:
+    name: Nippon TCG
+    priority: JP
+    category_url: "https://www.nippontcg.fr/one-piece"
+
+  japondemande:
+    name: Japon Demande
+    priority: JP
+    category_url: "https://japondemande.com/collections/one-piece"
+    platform: shopify
+
+  japandco:
+    name: Japan & Co
+    priority: JP
+    category_url: "https://japandco.net/collections/one-piece-card-game"
+    platform: shopify
+
+  jumpichiban:
+    name: Jump Ichiban
+    priority: JP
+    category_url: "https://jumpichiban.com/collections/one-piece-card-game"
+    platform: shopify
+
+
+# ─── ALERTES ────────────────────────────────────────────────────────
+alerts:
+
+  # ─────────────────────────────────────────────────────────────────
+  #  ALERTES PRODUITS — sites européens (FR / EN)
+  #  Tout est pertinent SAUF sleeves, cartes à l'unité, starter decks
+  # ─────────────────────────────────────────────────────────────────
+
+  - name: "Nouveautés OP TCG (FR/EN)"
+    enabled: true
+    # Pas de keywords = on accepte tous les titres
+    exclude: [
+      # Sleeves / pochettes / protections
+      "sleeve", "sleeves", "pochette", "pochettes",
+      "protège-carte", "protege-carte", "protege carte", "card sleeve",
+      # Starter decks (sets ST-XX, peuvent inclure les éditions spéciales)
+      "starter deck", "starter-deck", "starter pack",
+      "deck de démarrage", "deck de demarrage",
+      "ST-01", "ST-02", "ST-03", "ST-04", "ST-05", "ST-06", "ST-07",
+      "ST-08", "ST-09", "ST-10", "ST-11", "ST-12", "ST-13", "ST-14",
+      "ST-15", "ST-16", "ST-17", "ST-18", "ST-19", "ST-20", "ST-21",
+      "ST-22", "ST-23", "ST-24", "ST-25", "ST-26", "ST-27", "ST-28",
+      "ST-29", "ST-30", "ST01", "ST02", "ST03", "ST04", "ST05",
+      # Cartes à l'unité / singles
+      "single card", "carte unique", "à l'unité", "a l'unite",
+      "vendue à l'unité", "vendu à l'unité", "vendu a l'unite",
+      "carte seule", "carte alt art", "alt-art card",
+      # Accessoires
+      "playmat", "tapis de jeu", "tapis jeu",
+      "deck box", "deck-box", "deckbox",
+      "binder", "classeur", "classeurs",
+      "dice", "tokens"
+    ]
+    sites: [parkage, baron_collections, le_coin_des_barons, lesgentlemendujeu,
+            ludisphere, destocktcg, cardshunter, masterset, guizette,
+            mondes_fantastiques, tradingcardsxxx, mystic_ambre, bacchusia,
+            les7royaumes, ultrajeux, bcd_jeux, maison_presse, king_jouet,
+            fantasysphere, philibert, play_in, goupiya, ludiworld, oupi,
+            poke_geek, smartoys, tofopolis, investcollect, maxireves,
+            flevance, fantastik, micromania, espritjeu, fungamesnet,
+            ludocortex, lerepaireducollectionneur]
+
+  # ─────────────────────────────────────────────────────────────────
+  #  ALERTES PRODUITS — imports Japon
+  #  TOUT est pertinent (aucun filtre)
+  # ─────────────────────────────────────────────────────────────────
+
+  - name: "Nouveautés OP TCG Japon"
+    enabled: true
+    sites: [japanresell, nippontcg, japondemande, japandco, jumpichiban]
+
+  # ─────────────────────────────────────────────────────────────────
+  #  WANTSLIST CARDMARKET
+  # ─────────────────────────────────────────────────────────────────
+
+  - name: "Wantslist Cardmarket — mangaka"
+    enabled: true
+    type: news_page
+    url: "https://www.cardmarket.com/fr/OnePiece/Wants/22215309"
+    site_name: "CM Wantslist"
+    selectors:
+      item: ".table-body > .row, .article-row, .row.article-row"
+      title: ".col-md-7, .col-12, .seller-info"
+      link: "a"
+
+  # ─────────────────────────────────────────────────────────────────
+  #  SOURCES D'INFO (officiel + communauté)
+  # ─────────────────────────────────────────────────────────────────
+
+  - name: "Site officiel ONE PIECE TCG (EN)"
+    enabled: true
+    type: news_page
+    url: "https://en.onepiece-cardgame.com/news/"
+    site_name: "Site officiel"
+    selectors:
+      item: ".news-list li, article, .news-item"
+      title: ".title, h3, h2"
+      link: "a"
+
+  - name: "OnePiecePlayer — sorties produits"
+    enabled: true
+    type: rss
+    url: "https://onepieceplayer.com/feed/"
+    site_name: "OnePiecePlayer"
+    keywords: ["release", "pre-order", "preorder", "announce", "announced",
+               "OP-1", "OP-2", "EB-0", "EB-1", "EB-2", "EB-3",
+               "PRB-0", "PRB-1", "PRB-2", "ST-2", "starter deck"]
+    exclude: ["banlist", "ban list", "banned", "errata",
+              "how to play", "how-to-play", "deck guide", "tier list",
+              "meta report", "tournament", "regional", "world champ",
+              "interview", "podcast", "review", "spoiler"]
+
+  - name: "OnePiece.gg — news"
+    enabled: false
+    type: rss
+    url: "https://onepiece.gg/news/feed/"
+    site_name: "OnePiece.gg"
+
+
+# ─── NOTIFICATIONS ──────────────────────────────────────────────────
+notifications:
+
+  ntfy_topic: "trackee-tcg-rdkj42-secrer"
+
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+
+  email:
+    from: ""
+    password: ""
+    to: ""
+    smtp: smtp.gmail.com
+    port: 465

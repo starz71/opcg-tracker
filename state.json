@@ -1,0 +1,62 @@
+{
+  "seen": {
+    "Précommande EB-03::f3caa84363a0df": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": 125.0
+    },
+    "Précommande EB-03::e3e669ca1da0f9": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": 179.0
+    },
+    "Précommande PRB-02::9fb8383cb2ea3c": {
+      "date": "2026-04-27T22:28:15.321424+00:00",
+      "price": 134.9,
+      "last_notified": null
+    },
+    "Site officiel ONE PIECE TCG (EN)::acd9565a721e9a": {
+      "date": "2026-04-27T22:28:15.321424+00:00",
+      "price": null,
+      "last_notified": null
+    },
+    "OnePiecePlayer — actu communauté::933c0dee61207d": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::54c3021b0c99d4": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::ed3d06f1f2a0c9": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::732e6de584c609": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::5d5bbabe88bfc6": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::9f7d5bc6899a1b": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::cc7838120986fc": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::c7b27efbd67448": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::7bd0f1b81a528a": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    },
+    "OnePiecePlayer — actu communauté::e596543ff6b74b": {
+      "date": "2026-04-27T22:13:29.472900+00:00",
+      "price": null
+    }
+  }
+}

@@ -320,19 +320,23 @@ def scrape_category(session, site):
         avail = text_of(card.select_one(sel.get("availability"))) if sel.get("availability") else ""
         if not (title and href):
             continue
-        # Filtre : on ignore les ruptures de stock (mais on garde les précommandes)
-        if is_out_of_stock(card, avail):
+        # On garde TOUT (OOS et en stock) mais on marque l'état pour que
+        # process_alert puisse détecter les transitions OOS → en stock
+        # et bypasser le cooldown dans ce cas (le retour en stock est une
+        # info critique, jamais à filtrer).
+        oos = is_out_of_stock(card, avail)
+        if oos:
             skipped_oos += 1
-            continue
         results.append({
             "title": title,
             "url": urljoin(url, href),
             "price": price,
             "site": site["name"],
             "availability": avail,
+            "is_oos": oos,
         })
     if skipped_oos:
-        log(f"({skipped_oos} produits en rupture ignorés)", indent=2)
+        log(f"({skipped_oos} produits en rupture détectés et suivis pour transitions)", indent=2)
     return results
 
 # ─────────────────── Cardmarket : référence prix ──────────────────────
@@ -712,13 +716,17 @@ def notify_email(cfg, subject, body):
 def send_notifications(config, alert, listing, kind, previous=None, cm_data=None):
     n = config.get("notifications", {})
 
-    # Titre enrichi : "🚨 Display OP-16 — Tofopolis 142€"
+    # Titre enrichi : emoji + nom alerte + site + prix
     site = listing.get("site", "")
     price_short = f"{int(listing['price'])}€" if listing.get("price") is not None else ""
     title_parts = []
     if kind == "price_drop":
         title_parts.append("📉")
         tag = "money_with_wings"
+    elif kind == "back_in_stock":
+        # 🔥 Distinction visuelle forte : retour en stock = la fenêtre d'achat
+        title_parts.append("🔥 RETOUR STOCK —")
+        tag = "fire"
     else:
         title_parts.append("🚨")
         tag = "rotating_light"
@@ -731,6 +739,8 @@ def send_notifications(config, alert, listing, kind, previous=None, cm_data=None
 
     price_str = f"{listing['price']}€" if listing.get("price") is not None else "prix non détecté"
     body_lines = [listing["title"], f"📍 {listing['site']} — {price_str}"]
+    if kind == "back_in_stock":
+        body_lines.append("🔥 Ce produit était en rupture au run précédent — fenêtre d'achat ouverte !")
     if previous and listing.get("price"):
         body_lines.append(f"💰 Avant : {previous}€ → maintenant {listing['price']}€")
     if listing.get("availability"):
@@ -752,8 +762,10 @@ def send_notifications(config, alert, listing, kind, previous=None, cm_data=None
 
     topic = env_or(n, "ntfy_topic")
     if topic:
+        # Priorité haute pour les nouveautés ET les retours en stock (max=urgence)
+        priority = "max" if kind == "back_in_stock" else ("high" if kind == "new" else "default")
         notify_ntfy(topic, title, body, click_url=listing["url"],
-                    priority="high" if kind == "new" else "default", tags=[tag])
+                    priority=priority, tags=[tag])
 
     tg_token = env_or(n, "telegram_bot_token")
     tg_chat = env_or(n, "telegram_chat_id")
@@ -772,6 +784,15 @@ def listing_id(listing):
     return hashlib.sha256(f"{listing['site']}::{listing['url']}".encode()).hexdigest()[:14]
 
 def process_alert(config, alert, listings, state, history, now_iso, get_cm_callable=None, sites_config=None):
+    """Logique de notification :
+       - Produit OOS  : on enregistre l'état mais on ne notifie pas
+       - 1re vue en stock                : notif "new" (cooldown actif)
+       - Transition OOS → en stock       : notif "back_in_stock" (BYPASSE le cooldown,
+                                            c'est l'événement le plus important pour
+                                            l'utilisateur — fenêtre d'achat critique)
+       - Baisse de prix significative    : notif "price_drop" (cooldown actif)
+       - Re-vue en stock même état       : silence (cooldown ou pas)
+    """
     seen = state.setdefault("seen", {})
     fired = 0
     # Cooldown : configurable au niveau alerte ou globalement, défaut 24h
@@ -786,18 +807,25 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
             continue
         lid = listing_id(listing)
         akey = f"{alert['name']}::{lid}"
+        cur_oos = bool(listing.get("is_oos"))
 
-        # Historique de prix
-        h = history.setdefault(lid, {
-            "title": listing["title"], "url": listing["url"],
-            "site": listing["site"], "prices": [],
-        })
-        if listing.get("price") is not None:
-            if not h["prices"] or h["prices"][-1]["price"] != listing["price"]:
-                h["prices"].append({"date": now_iso, "price": listing["price"]})
+        # Historique de prix : on logue uniquement quand le produit est en stock
+        # (sinon on pollue le tracker avec des "rupture" répétées)
+        if not cur_oos:
+            h = history.setdefault(lid, {
+                "title": listing["title"], "url": listing["url"],
+                "site": listing["site"], "prices": [],
+            })
+            if listing.get("price") is not None:
+                if not h["prices"] or h["prices"][-1]["price"] != listing["price"]:
+                    h["prices"].append({"date": now_iso, "price": listing["price"]})
 
         prev = seen.get(akey)
-        # Calcul du temps écoulé depuis la dernière notif (pour cooldown)
+        prev_oos = prev.get("is_oos") if prev else None  # None = jamais vu
+        prev_p = prev.get("price") if prev else None
+        cur_p = listing.get("price")
+
+        # Calcul du cooldown
         last_notified = prev.get("last_notified") if prev else None
         last_notified_dt = None
         if last_notified:
@@ -805,34 +833,45 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
                 last_notified_dt = datetime.fromisoformat(last_notified)
             except Exception:
                 last_notified_dt = None
-
         in_cooldown = (last_notified_dt is not None
                        and (now_dt - last_notified_dt).total_seconds() < cooldown_seconds)
 
-        prev_p = prev.get("price") if prev else None
-        cur_p = listing.get("price")
-
-        # Mise à jour de l'état (on garde toujours la trace, même en cooldown)
+        # Mise à jour de l'état (toujours, même en cooldown ou OOS)
         seen[akey] = {
             "date": now_iso,
             "price": cur_p,
-            "last_notified": last_notified,  # on garde l'ancien tant qu'on n'a pas notifié
+            "is_oos": cur_oos,
+            "last_notified": last_notified,
         }
 
+        # ─── Décider si on notifie ───
         should_notify = False
         kind = "new"
         prev_for_msg = None
+        bypass_cooldown = False  # vrai pour les transitions OOS → en stock
 
-        if prev is None:
+        if cur_oos:
+            # Produit en rupture : on enregistre, on ne notifie jamais
+            pass
+        elif prev_oos is True:
+            # 🎯 Transition OOS → en stock : événement critique, notif immédiate
+            should_notify = True
+            kind = "back_in_stock"
+            bypass_cooldown = True
+        elif prev is None:
+            # Première fois qu'on voit ce produit (et il est en stock)
             should_notify = True
             kind = "new"
         elif (prev_p is not None and cur_p is not None
               and cur_p < prev_p * PRICE_DROP_THRESHOLD):
+            # Baisse de prix significative
             should_notify = True
             kind = "price_drop"
             prev_for_msg = prev_p
+        # Sinon : déjà en stock au run précédent, rien de neuf, on se tait
 
-        if should_notify and in_cooldown:
+        # Le cooldown ne s'applique PAS aux retours en stock
+        if should_notify and in_cooldown and not bypass_cooldown:
             log(f"⏸  cooldown actif ({cooldown_h}h) — {listing['title'][:60]}", indent=2)
             should_notify = False
 
@@ -840,7 +879,6 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
             # Résolution du Cardmarket ref pour CE listing précis (auto par set+langue)
             cm_data = None
             if get_cm_callable:
-                # Identifier la priorité du site pour deviner la langue par défaut
                 site_priority = None
                 if sites_config:
                     for sid, scfg in sites_config.items():

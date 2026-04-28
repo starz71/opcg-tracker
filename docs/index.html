@@ -427,7 +427,7 @@ main { max-width: 1480px; margin: 0 auto; padding: 32px 40px; }
 }
 .subrow {
   display: grid;
-  grid-template-columns: 100px 110px 1fr 130px 90px auto auto;
+  grid-template-columns: 100px 110px 1fr 130px 90px auto;
   align-items: center; gap: 12px;
   padding: 12px 20px 12px 84px;
   border-bottom: 1px solid var(--border);
@@ -438,6 +438,32 @@ main { max-width: 1480px; margin: 0 auto; padding: 32px 40px; }
 .subrow .product-title {
   color: var(--text-dim); font-size: 0.82rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Header des sous-lignes : bouton "voir évolution du groupe" */
+.subrows-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 20px 14px 84px;
+  border-bottom: 1px solid var(--border-strong);
+  background: linear-gradient(90deg, rgba(255, 61, 138, 0.08), transparent);
+  flex-wrap: wrap;
+}
+.btn-chart-group {
+  background: linear-gradient(135deg, rgba(255, 61, 138, 0.18), rgba(0, 224, 255, 0.12));
+  border: 1px solid rgba(255, 61, 138, 0.4);
+  color: var(--magenta); padding: 8px 16px; border-radius: 8px;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  transition: all 0.2s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-chart-group:hover {
+  background: linear-gradient(135deg, rgba(255, 61, 138, 0.3), rgba(0, 224, 255, 0.2));
+  box-shadow: 0 4px 16px rgba(255, 61, 138, 0.3);
+  transform: translateY(-1px);
+}
+.subrows-hint {
+  color: var(--text-dim); font-size: 0.82rem;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* PRIX en gros et bien visible */
@@ -541,8 +567,8 @@ footer .heart { color: var(--magenta); }
     padding-left: 30px;
   }
   .subrow > *:nth-child(3),
-  .subrow > *:nth-child(5),
-  .subrow > *:nth-child(6) { display: none; }
+  .subrow > *:nth-child(5) { display: none; }
+  .subrows-header { padding-left: 30px; }
 }
 </style>
 </head>
@@ -675,7 +701,7 @@ footer .heart { color: var(--magenta); }
 </footer>
 
 <script>
-const HISTORY_URL = "../history.json";
+const HISTORY_URL = "https://raw.githubusercontent.com/starz71/opcg-tracker/main/history.json";
 const SET_RE = /\b(OP|EB|PRB|ST)\s*[-_]?\s*(\d{1,2})\b/i;
 const FAV_KEY = "opcg-favs-v2";
 const ACTIVE_LANGS_KEY = "opcg-langs-v1";
@@ -984,12 +1010,12 @@ function renderGroups() {
       renderGroups();
     });
   });
-  body.querySelectorAll(".btn-chart").forEach(b => {
+  body.querySelectorAll(".btn-chart-group").forEach(b => {
     b.addEventListener("click", e => {
       e.stopPropagation();
-      const lid = b.dataset.lid;
-      const p = allListings.find(x => x.lid === lid);
-      if (p) drawChart(p);
+      const key = b.dataset.key;
+      const grp = groups.find(x => x.key === key);
+      if (grp) drawGroupChart(grp);
     });
   });
 }
@@ -1075,11 +1101,20 @@ function renderSubrows(g) {
     if (oa !== ob) return oa - ob;
     return (a.price ?? Infinity) - (b.price ?? Infinity);
   });
-  // Repère le meilleur prix dispo (in ou preorder)
   const dispoPrices = sorted.filter(l => (l.status === "in" || l.status === "preorder") && l.price != null).map(l => l.price);
   const bestPrice = dispoPrices.length ? Math.min(...dispoPrices) : null;
 
+  // En-tête des sous-lignes : bouton historique du groupe + indicateur
+  const headerBar = `
+    <div class="subrows-header">
+      <button class="btn-chart-group" data-key="${escapeHtml(g.key)}">
+        📈 Voir l'évolution des prix de ce produit
+      </button>
+      <span class="subrows-hint">${g.total} site${g.total > 1 ? "s" : ""} suivi${g.total > 1 ? "s" : ""} · ${bestPrice != null ? `Meilleur prix : <strong style="color:var(--green)">${bestPrice.toFixed(2)}€</strong>` : "Aucun prix disponible"}</span>
+    </div>`;
+
   return `<div class="subrows show">
+    ${headerBar}
     ${sorted.map(l => {
       let pill;
       if (l.status === "in") pill = '<span class="stock-pill in">Dispo</span>';
@@ -1099,7 +1134,6 @@ function renderSubrows(g) {
         <span class="product-title">${escapeHtml(l.title.length > 70 ? l.title.slice(0, 70) + "…" : l.title)}</span>
         <span class="${priceClass}">${priceText}</span>
         <span class="relative">${relTime(l.lastSeen)}</span>
-        <button class="btn-chart" data-lid="${escapeHtml(l.lid)}" title="Voir l'évolution du prix">📈</button>
         <a class="btn-view" href="${escapeHtml(l.url)}" target="_blank" rel="noopener">Voir →</a>
       </div>
     `}).join("")}
@@ -1187,42 +1221,79 @@ document.addEventListener("keydown", e => {
   }
 });
 
-function drawChart(p) {
-  // En-tête : nom + lien
-  const linkHtml = (p.url && p.url !== "#")
-    ? ` <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">→ Voir le produit</a>`
-    : "";
+function drawGroupChart(g) {
+  // Construit l'historique agrégé du groupe : on prend tous les points de prix
+  // de tous les listings du groupe, on les bucketize par jour, et on fait
+  // la moyenne par jour. Ça lisse le bruit d'un site individuel et donne
+  // la tendance globale du marché pour ce set+langue.
+  const buckets = new Map(); // dayKey (YYYY-MM-DD) → { sum, count }
+  for (const l of g.listings) {
+    for (const point of (l.history || [])) {
+      const d = new Date(point.date);
+      const dayKey = d.toISOString().slice(0, 10); // "2026-04-28"
+      if (!buckets.has(dayKey)) buckets.set(dayKey, { sum: 0, count: 0, sites: new Set() });
+      const b = buckets.get(dayKey);
+      b.sum += point.price;
+      b.count += 1;
+      b.sites.add(l.site);
+    }
+  }
+  // Convertir en série triée
+  const points = [...buckets.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, b]) => ({
+      x: day + "T12:00:00Z",
+      y: Math.round((b.sum / b.count) * 100) / 100,
+      sites: b.sites.size,
+    }));
+
+  // En-tête
+  const langLabel = g.lang && g.lang !== "??" ? " " + g.lang : "";
+  const setLabel = g.set || "Sans code";
+  const sample = g.listings[0];
+  let cleanName = sample.title.replace(SET_RE, "").replace(/\bDisplay\b/i, "").trim();
+  cleanName = cleanName.replace(/\b(FR|EN|JP|JAP|JAPONAIS|JAPAN|FRANCAIS|FRANÇAIS|ENGLISH|ANGLAIS)\b/gi, "").trim();
+  cleanName = cleanName.replace(/\s+/g, " ").replace(/^[\s\-_,]+|[\s\-_,]+$/g, "");
+  if (!cleanName) cleanName = "Display";
   document.getElementById("drawerProductName").innerHTML =
-    `<span class="accent">${escapeHtml(p.set || "Sans code")}${p.lang && p.lang !== "??" ? " " + p.lang : ""}</span> · ${escapeHtml(p.title.slice(0, 80))}${linkHtml}`;
+    `<span class="accent">${escapeHtml(setLabel)}${langLabel}</span> · ${escapeHtml(cleanName)}`;
 
-  const points = p.history.map(h => ({ x: h.date, y: h.price }));
-
-  // Stats sur l'historique
-  const prices = points.map(pt => pt.y);
-  const minP = prices.length ? Math.min(...prices) : null;
-  const maxP = prices.length ? Math.max(...prices) : null;
-  const firstP = points[0]?.y;
-  const lastP  = points[points.length - 1]?.y;
+  // Stats
+  const ys = points.map(p => p.y);
+  const minP = ys.length ? Math.min(...ys) : null;
+  const maxP = ys.length ? Math.max(...ys) : null;
+  const lastP = ys[ys.length - 1];
+  const firstP = ys[0];
   const change = (firstP != null && lastP != null && firstP !== 0)
     ? ((lastP - firstP) / firstP) * 100 : 0;
+  const dispoListings = g.listings.filter(l => l.status === "in" || l.status === "preorder");
+  const currentBest = dispoListings.length
+    ? Math.min(...dispoListings.filter(l => l.price != null).map(l => l.price))
+    : null;
 
   document.getElementById("drawerStats").innerHTML = `
-    <div class="drawer-stat"><div class="l">Prix actuel</div><div class="v">${lastP != null ? lastP.toFixed(2) + "€" : "—"}</div></div>
+    <div class="drawer-stat"><div class="l">Meilleur prix actuel</div><div class="v green">${currentBest != null ? currentBest.toFixed(2) + "€" : "—"}</div></div>
+    <div class="drawer-stat"><div class="l">Prix moyen actuel</div><div class="v">${lastP != null ? lastP.toFixed(2) + "€" : "—"}</div></div>
+    <div class="drawer-stat"><div class="l">Évolution</div><div class="v ${change > 1 ? 'red' : change < -1 ? 'green' : ''}">${Math.abs(change) >= 0.1 ? (change > 0 ? "+" : "") + change.toFixed(1) + "%" : "—"}</div></div>
     <div class="drawer-stat"><div class="l">Min observé</div><div class="v green">${minP != null ? minP.toFixed(2) + "€" : "—"}</div></div>
     <div class="drawer-stat"><div class="l">Max observé</div><div class="v red">${maxP != null ? maxP.toFixed(2) + "€" : "—"}</div></div>
-    <div class="drawer-stat"><div class="l">Évolution</div><div class="v ${change > 1 ? 'red' : change < -1 ? 'green' : ''}">${Math.abs(change) >= 0.1 ? (change > 0 ? "+" : "") + change.toFixed(1) + "%" : "—"}</div></div>
-    <div class="drawer-stat"><div class="l">Points relevés</div><div class="v">${points.length}</div></div>
-    <div class="drawer-stat"><div class="l">Site</div><div class="v" style="font-size:0.85rem">${escapeHtml(p.site)}</div></div>
+    <div class="drawer-stat"><div class="l">Sites suivis</div><div class="v">${g.total}</div></div>
   `;
 
-  // Info statut + dernier scan
+  // Info statut groupe
   let statusLabel;
-  if (p.status === "in") statusLabel = '<span class="stock-pill in">Dispo</span>';
-  else if (p.status === "preorder") statusLabel = '<span class="stock-pill preorder">Précommande</span>';
-  else if (p.status === "out") statusLabel = '<span class="stock-pill out">Rupture</span>';
-  else statusLabel = '<span class="stock-pill unknown">État inconnu</span>';
+  if (g.stockStatus === "in") statusLabel = `<span class="stock-pill in">${g.inStockCount} site${g.inStockCount > 1 ? "s" : ""} en stock</span>`;
+  else if (g.stockStatus === "preorder") statusLabel = `<span class="stock-pill preorder">${g.preorderCount} site${g.preorderCount > 1 ? "s" : ""} en pré-co</span>`;
+  else if (g.stockStatus === "out") statusLabel = '<span class="stock-pill out">Tous en rupture</span>';
+  else {
+    const parts = [];
+    if (g.inStockCount > 0)  parts.push(`<span class="stock-pill in" style="font-size:0.7rem;padding:2px 8px">🟢 ${g.inStockCount}</span>`);
+    if (g.preorderCount > 0) parts.push(`<span class="stock-pill preorder" style="font-size:0.7rem;padding:2px 8px">🟡 ${g.preorderCount}</span>`);
+    if (g.outCount > 0)      parts.push(`<span class="stock-pill out" style="font-size:0.7rem;padding:2px 8px">🔴 ${g.outCount}</span>`);
+    statusLabel = `<div style="display:inline-flex;gap:6px">${parts.join("")}</div>`;
+  }
   document.getElementById("drawerSiteInfo").innerHTML =
-    `${statusLabel} <span style="margin-left:8px;color:var(--text-faded)">Dernier scan il y a ${relTime(p.lastSeen)}</span>`;
+    `${statusLabel} <span style="margin-left:8px;color:var(--text-faded)">Dernier scan il y a ${relTime(g.lastSeen)}</span>`;
 
   if (chart) { chart.destroy(); chart = null; }
   if (!points.length) {
@@ -1240,7 +1311,7 @@ function drawChart(p) {
   chart = new Chart(ctx, {
     type: "line",
     data: { datasets: [{
-      label: "Prix (€)", data: points,
+      label: "Prix moyen (€)", data: points,
       borderColor: "#ff3d8a", borderWidth: 2.5,
       backgroundColor: grad, fill: true, tension: 0.35,
       pointRadius: 3, pointHoverRadius: 7,
@@ -1252,7 +1323,7 @@ function drawChart(p) {
       interaction: { mode: "index", intersect: false },
       scales: {
         x: { type: "time",
-          time: { tooltipFormat: "dd/MM/yy HH:mm", displayFormats: { day: "dd MMM", hour: "HH:mm" } },
+          time: { tooltipFormat: "dd/MM/yy", displayFormats: { day: "dd MMM" } },
           ticks: { color: "#5a607c", font: { family: "JetBrains Mono", size: 10 }, maxRotation: 0 },
           grid: { color: "rgba(255,255,255,0.04)" } },
         y: { ticks: { color: "#5a607c", font: { family: "JetBrains Mono", size: 10 }, callback: v => v + "€" },
@@ -1266,13 +1337,22 @@ function drawChart(p) {
           titleFont: { family: "JetBrains Mono", size: 11 },
           bodyFont: { family: "Manrope", size: 13, weight: "600" },
           padding: 12, cornerRadius: 8,
-          callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)} €` }
+          callbacks: {
+            label: ctx => `Moyenne : ${ctx.parsed.y.toFixed(2)} €`,
+            afterLabel: ctx => {
+              const point = points[ctx.dataIndex];
+              return point && point.sites ? `Sur ${point.sites} site${point.sites > 1 ? "s" : ""}` : "";
+            }
+          }
         }
       }
     }
   });
   openDrawer();
 }
+
+// Conserve drawChart pour rétrocompatibilité (au cas où)
+const drawChart = drawGroupChart;
 
 // ────── PERSISTENCE ──────
 function loadFavs() {

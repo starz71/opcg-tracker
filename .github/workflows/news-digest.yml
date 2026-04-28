@@ -1,0 +1,88 @@
+name: News Digest
+
+on:
+  schedule:
+    # Collecte quotidienne à 06:00 UTC pour avoir un historique frais
+    - cron: "0 6 * * *"
+    # Digest hebdomadaire dimanche à 18:00 UTC (= 19h Paris hiver, 20h été)
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action à exécuter"
+        required: true
+        default: "collect"
+        type: choice
+        options:
+          - collect       # Collecte uniquement (mise à jour news_history.json)
+          - digest        # Envoie le digest hebdo (utilise news_history.json existant)
+          - both          # Collecte puis envoie le digest (force)
+
+concurrency:
+  group: news-digest
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install requests beautifulsoup4 lxml deep-translator
+
+      - name: Determine action
+        id: act
+        run: |
+          # Si workflow_dispatch, prend l'input choisi
+          # Si scheduled, déduit du jour : dimanche 18h = digest, sinon collect
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +%H)
+            DOW=$(date -u +%u)  # 1=lundi, 7=dimanche
+            if [ "$DOW" = "7" ] && [ "$HOUR" = "18" ]; then
+              echo "action=both" >> $GITHUB_OUTPUT
+            else
+              echo "action=collect" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Collect news (FR + EN + JP)
+        if: steps.act.outputs.action == 'collect' || steps.act.outputs.action == 'both'
+        run: python scripts/news_collector.py
+
+      - name: Send weekly digest
+        if: steps.act.outputs.action == 'digest' || steps.act.outputs.action == 'both'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/weekly_news_digest.py
+
+      - name: Commit news_history.json
+        if: steps.act.outputs.action == 'collect' || steps.act.outputs.action == 'both'
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          if [ -f news_history.json ]; then
+            git add news_history.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(news): update news_history.json [skip ci]"
+              git push
+            else
+              echo "Pas de changement dans news_history.json"
+            fi
+          fi

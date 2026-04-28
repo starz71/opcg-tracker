@@ -23,9 +23,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ALERTS_FILE = ROOT / "alerts.yaml"
 
-# Mapping nom CM → code de set. À étendre quand un nouveau set sort avec
-# un nouveau nom inconnu de cette table.
+# Mapping nom CM → code de set.
+# IMPORTANT : One Piece TCG a deux séries parallèles, OP (main sets) et EB
+# (Extra Boosters) qui sortent en alternance. Cardmarket les distingue.
+# Source : la liste officielle des sets sur https://www.cardmarket.com/fr/OnePiece
 NAME_TO_CODE = {
+    # ──── Main sets (OP) ────
     "Romance Dawn":               "OP-01",
     "Paramount War":              "OP-02",
     "Pillars of Strength":        "OP-03",
@@ -40,26 +43,21 @@ NAME_TO_CODE = {
     "Legacy of the Master":       "OP-12",
     "Carrying on his Will":       "OP-13",
     "The Azure Sea's Seven":      "OP-14",
-    "Heroines Edition":           "OP-15",
-    # Placeholders avant noms officiels
+    "Adventure on Kami's Island": "OP-15",   # OP-15 = Kami's Island (PAS Heroines Edition)
+    "The Time of Battle":         "OP-16",   # OP-16 = The Time of Battle
+    # Placeholders Cardmarket avant noms officiels
     "OP15":                       "OP-15",
     "OP16":                       "OP-16",
     "OP17":                       "OP-17",
     "OP18":                       "OP-18",
     "OP19":                       "OP-19",
     "OP20":                       "OP-20",
-    "OP21":                       "OP-21",
-    "OP22":                       "OP-22",
-    "OP23":                       "OP-23",
-    "OP24":                       "OP-24",
-    "OP25":                       "OP-25",
-    # Mappings JP probables (à corriger si erreur)
-    "Egghead Crisis":             "OP-17",
-    "Adventure on Kami's Island": "OP-18",
-    # Extra Boosters
+    # ──── Extra Boosters (EB) ────
     "Memorial Collection":        "EB-01",
     "Anime 25th Collection":      "EB-02",
-    # Premium / Best
+    "Heroines Edition":           "EB-03",   # EB-03 = Heroines Edition (PAS OP-15)
+    "Egghead Crisis":             "EB-04",   # EB-04 = Egghead Crisis
+    # ──── Premium / Best (PRB) ────
     "The Best":                   "PRB-01",
     "The Best Vol.2":             "PRB-02",
     "The Best Vol.3":             "PRB-03",

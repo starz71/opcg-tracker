@@ -37,10 +37,10 @@ cardmarket_lookups:
   "OP-12": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Legacy-of-the-Master-Booster-Box-Non-English" }
   "OP-13": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Carrying-on-his-Will-Booster-Box-Non-English" }
   "OP-14": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Azure-Seas-Seven-Booster-Box-Asia-Region-Legal" }
-  "OP-15": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box-Asia-Region-Legal" }
-  "OP-16": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP16-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP16-Booster-Box", jp: "" }
-  "OP-17": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Egghead-Crisis-Booster-Box-Asia-Region-Lega" }
-  "OP-18": { fr: "", en: "", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Adventure-on-Kamis-Island-Booster-Box-Asia-Region-Legal" }
+  "OP-15": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Adventure-on-Kamis-Island-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Adventure-on-Kamis-Island-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Adventure-on-Kamis-Island-Booster-Box-Asia-Region-Legal" }
+  "OP-16": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Time-of-Battle-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/The-Time-of-Battle-Booster-Box", jp: "" }
+  "OP-17": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/OP17-Booster-Box", jp: "" }
+  "OP-18": { fr: "", en: "", jp: "" }
   "OP-19": { fr: "", en: "", jp: "" }
   "OP-20": { fr: "", en: "", jp: "" }
   "OP-21": { fr: "", en: "", jp: "" }
@@ -62,8 +62,8 @@ cardmarket_lookups:
   # ──────────────── Extra Boosters (EB) ────────────────
   "EB-01": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Memorial-Collection-Booster-Box-Non-English" }
   "EB-02": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Anime-25th-Collection-Booster-Box-Non-English" }
-  "EB-03": { fr: "", en: "", jp: "" }
-  "EB-04": { fr: "", en: "", jp: "" }
+  "EB-03": { fr: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", en: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Heroines-Edition-Booster-Box-Asia-Region-Legal" }
+  "EB-04": { fr: "", en: "", jp: "https://www.cardmarket.com/fr/OnePiece/Products/Booster-Boxes/Egghead-Crisis-Booster-Box-Asia-Region-Lega" }
   "EB-05": { fr: "", en: "", jp: "" }
   "EB-06": { fr: "", en: "", jp: "" }
   "EB-07": { fr: "", en: "", jp: "" }

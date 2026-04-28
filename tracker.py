@@ -820,15 +820,50 @@ def notify_ntfy(topic, title, body, click_url=None, priority="default", tags=Non
     except Exception as ex:
         log(f"⚠️  ntfy: {ex}", indent=2)
 
+def _telegram_escape_md(text):
+    """Échappe les caractères Markdown spéciaux pour Telegram (mode legacy 'Markdown').
+    Telegram interprète *, _, `, [ et certains autres comme balises actives.
+    On préfixe avec un backslash pour les neutraliser."""
+    if not text:
+        return text
+    # Caractères critiques en Markdown legacy Telegram
+    for char in ['_', '*', '`', '[']:
+        text = text.replace(char, '\\' + char)
+    return text
+
 def notify_telegram(token, chat_id, text):
+    """Envoie un message Telegram avec gestion d'erreurs visible dans les logs.
+    Tente d'abord en Markdown ; si Telegram refuse à cause d'une syntaxe
+    Markdown invalide, retente en mode plain text (sans formatage)."""
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    # Tentative 1 : Markdown (avec échappement des caractères critiques)
+    safe_text = _telegram_escape_md(text)
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            timeout=10,
-        )
+        r = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": safe_text,
+            "parse_mode": "Markdown",
+        }, timeout=10)
+        if r.status_code == 200:
+            return  # OK
+        # Si erreur Markdown (400 Bad Request), on retente en plain
+        log(f"⚠️  telegram Markdown failed ({r.status_code}): {r.text[:200]}", indent=2)
     except Exception as ex:
-        log(f"⚠️  telegram: {ex}", indent=2)
+        log(f"⚠️  telegram exception (Markdown): {ex}", indent=2)
+
+    # Tentative 2 : plain text sans parse_mode
+    try:
+        r = requests.post(url, json={
+            "chat_id": chat_id,
+            "text": text,  # texte original sans escape
+            # pas de parse_mode → Telegram traite comme du texte brut
+        }, timeout=10)
+        if r.status_code == 200:
+            log(f"✓ telegram envoyé en plain text", indent=2)
+            return
+        log(f"❌ telegram plain failed ({r.status_code}): {r.text[:200]}", indent=2)
+    except Exception as ex:
+        log(f"❌ telegram exception (plain): {ex}", indent=2)
 
 def notify_email(cfg, subject, body):
     try:

@@ -13,7 +13,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -99,25 +99,49 @@ def translate_to_fr(text: str, source_lang: str = "auto") -> str:
 
 
 # ─────────────────── Sélection / formatage ───────────────────
+_DATE_ONLY_PATTERNS = [
+    re.compile(r"^\d{1,2}\s+\w+\s+\d{4}$", re.UNICODE),  # "19 mars 2026"
+    re.compile(r"^[A-Za-z]+\s+\d{1,2},?\s+\d{4}$"),       # "March 19, 2026"
+    re.compile(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$"),           # "2026-03-19"
+    re.compile(r"^\d{4}年\d{1,2}月\d{1,2}日$"),               # "2026年3月19日"
+]
+
+def _is_valid_title(title: str) -> bool:
+    """Rejette les titres dégénérés (juste une date, vide, trop court)."""
+    if not title or len(title.strip()) < 8:
+        return False
+    t = title.strip()
+    for pat in _DATE_ONLY_PATTERNS:
+        if pat.match(t):
+            return False
+    return True
+
+
 def filter_recent(items: dict, days: int = DIGEST_WINDOW_DAYS) -> list[dict]:
     """Garde les annonces dont la published_date est dans la fenêtre.
+    Filtre aussi les titres dégénérés (juste une date, parsing raté).
     Si pas de published_date, on ne la retient PAS (trop risqué de remonter
     des vieilles annonces qu'on découvre tardivement)."""
     today = datetime.now(timezone.utc).date()
     cutoff_date = today - timedelta(days=days)
     selected = []
+    skipped_bad_title = 0
     for key, item in items.items():
         pub_str = item.get("published_date")
         if not pub_str:
-            # Pas de date parsée → on ignore (sécurité)
             continue
         try:
             pub_date = datetime.strptime(pub_str, "%Y-%m-%d").date()
         except ValueError:
             continue
-        if pub_date >= cutoff_date:
-            selected.append(item)
-    # Tri : plus récent en premier
+        if pub_date < cutoff_date:
+            continue
+        if not _is_valid_title(item.get("title", "")):
+            skipped_bad_title += 1
+            continue
+        selected.append(item)
+    if skipped_bad_title:
+        log(f"⏭️  {skipped_bad_title} annonce(s) ignorée(s) (titre dégénéré)", indent=1)
     selected.sort(key=lambda it: it.get("published_date", ""), reverse=True)
     return selected
 

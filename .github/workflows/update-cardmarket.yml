@@ -1,0 +1,71 @@
+# Workflow de mise à jour automatique de la table cardmarket_lookups.
+#
+# Tourne 1× par semaine. Télécharge directement l'export CM officiel
+# (URL S3 publique, pas d'authentification nécessaire), met à jour la
+# section cardmarket_lookups de alerts.yaml UNIQUEMENT aux endroits vides
+# (les URLs déjà remplies à la main sont préservées), et commit/push si
+# changement détecté.
+#
+# Vous n'avez rien à faire — quand un nouveau set sort sur Cardmarket,
+# il sera détecté et ajouté automatiquement à votre table dans la semaine.
+
+name: Update Cardmarket Lookups
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # tous les lundis à 03:00 UTC
+  workflow_dispatch:      # bouton "Run workflow" manuel
+  push:
+    paths:
+      - 'scripts/update_lookups.py'
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CM_PRODUCTS_URL: "https://downloads.s3.cardmarket.com/productCatalog/productList/products_nonsingles_18.json"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install PyYAML
+
+      - name: Download Cardmarket export
+        run: |
+          mkdir -p data
+          echo "📥 Téléchargement de $CM_PRODUCTS_URL"
+          curl -sSL -o data/products_cm.json "$CM_PRODUCTS_URL"
+          # Vérifier que c'est bien du JSON
+          python -c "import json; d = json.load(open('data/products_cm.json')); print(f'✓ JSON valide, {len(d.get(\"products\", []))} produits')"
+
+      - name: Run update_lookups.py
+        run: python scripts/update_lookups.py data/products_cm.json
+
+      - name: Validate YAML
+        run: python -c "import yaml; yaml.safe_load(open('alerts.yaml').read()); print('✓ alerts.yaml valide')"
+
+      - name: Commit changes
+        run: |
+          git config user.name  "tracker-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add alerts.yaml
+          if ! git diff --staged --quiet; then
+            git commit -m "auto: update cardmarket_lookups from CM export"
+            git push
+            echo "✅ alerts.yaml mis à jour et poussé"
+          else
+            echo "ℹ️  alerts.yaml déjà à jour, rien à faire"
+          fi

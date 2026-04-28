@@ -24,7 +24,7 @@ from news_collector import (
     HISTORY_FILE, fetch_html, log
 )
 
-DIGEST_WINDOW_DAYS = 10  # Annonces des 10 derniers jours (7 + 3 jours de marge)
+DIGEST_WINDOW_DAYS = 80  # Annonces des 80 derniers jours (cycle complet précommande → sortie)
 
 # ─────────────────── Telegram ───────────────────
 def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None,

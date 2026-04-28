@@ -79,7 +79,7 @@ SOURCES = [
 SET_RE = re.compile(r"\b(OP|EB|PRB|ST|PRD|DP|TS|IB|DF|PRC)\s*[-_]?\s*(\d{1,2})\b", re.I)
 
 HISTORY_FILE = Path("news_history.json")
-ROLLING_WINDOW_DAYS = 30  # on garde 30 jours d'historique
+ROLLING_WINDOW_DAYS = 80  # on garde 80 jours d'historique
 
 
 # ─────────────────── Utils ───────────────────
@@ -218,15 +218,34 @@ def scrape_fr_topics(source: dict) -> list[dict]:
                 break
         if not category:
             continue
-        # Titre : ce qui suit la catégorie
-        idx = text.find(category)
-        title = text[idx + len(category):].strip() if idx >= 0 else text
+        # Stratégie 1 : essayer de récupérer le titre depuis un h3/h2/strong dans le link
+        title_el = link.find(["h3", "h2", "h4", "strong"])
+        title = title_el.get_text(" ", strip=True) if title_el else ""
+
+        # Stratégie 2 : si rien trouvé, extraire depuis le texte global
+        if not title or len(title) < 10:
+            idx = text.find(category)
+            title = text[idx + len(category):].strip() if idx >= 0 else text
+
+        # Nettoyage : retirer dates, badges, suffixes
         title = re.sub(r"^[\s.\-—:]+", "", title)
-        title = re.sub(r"a été mis à jour\.?\s*$", "", title, flags=re.I).strip()
+        title = re.sub(r"a été mis à jour\.?\s*", "", title, flags=re.I).strip()
+        # Retirer "AUTRE" et dates qui traînent à la fin
+        title = re.sub(r"\s+AUTRE\s+\d{1,2}\s+\w+\s+\d{4}\s*$", "", title)
+        title = re.sub(r"\s+\d{1,2}\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4}\s*$", "", title, flags=re.I)
         # Coupe les éventuels parasites de menu
         title = re.split(r"\b(VOIR TOUT|LISTE DES|PLUS D)\b", title)[0].strip()
-        if not title or len(title) < 10:
-            continue
+
+        # Si le titre est encore juste une date pure, fallback : déduire du slug d\'URL
+        if re.fullmatch(r"\d{1,2}\s+\w+\s+\d{4}", title) or len(title) < 10:
+            slug = href.rstrip("/").split("/")[-1].replace(".php", "").replace(".html", "")
+            slug = re.sub(r"[-_]+", " ", slug).strip()
+            slug = re.sub(r"\s+", " ", slug)
+            if slug and len(slug) > 4:
+                title = slug.title()
+            else:
+                continue  # vraiment rien d\'utilisable, skip
+
         if len(title) > 200:
             title = title[:200].rsplit(" ", 1)[0] + "…"
         if title_excluded(title):
@@ -292,14 +311,29 @@ def scrape_en_topics(source: dict) -> list[dict]:
         if not category:
             continue
 
-        # Titre : après la catégorie
-        idx = text.find(category)
-        title = text[idx + len(category):].strip() if idx >= 0 else text
-        title = re.sub(r"^[\s.\-—:]+", "", title)
-        # Coupe au premier "VIEW ALL" ou "READ MORE" ou date suivante (parasites menus)
-        title = re.split(r"\b(VIEW ALL|READ MORE|LATEST INFORMATION)\b", title)[0].strip()
+        # Stratégie 1 : titre depuis un h3/h2 du link
+        title_el = link.find(["h3", "h2", "h4", "strong"])
+        title = title_el.get_text(" ", strip=True) if title_el else ""
+
+        # Stratégie 2 : depuis le texte global après la catégorie
         if not title or len(title) < 10:
-            continue
+            idx = text.find(category)
+            title = text[idx + len(category):].strip() if idx >= 0 else text
+        title = re.sub(r"^[\s.\-—:]+", "", title)
+        # Coupe parasites de menu
+        title = re.split(r"\b(VIEW ALL|READ MORE|LATEST INFORMATION)\b", title)[0].strip()
+        # Retire date qui traîne à la fin
+        title = re.sub(r"\s+[A-Z][a-z]+\s+\d{1,2},?\s+\d{4}\s*$", "", title)
+
+        # Fallback slug si le titre est juste une date ou trop court
+        if re.fullmatch(r"[A-Za-z]+\s+\d{1,2},?\s+\d{4}", title) or len(title) < 10:
+            slug = href.rstrip("/").split("/")[-1].replace(".php", "").replace(".html", "")
+            slug = re.sub(r"[-_]+", " ", slug).strip()
+            if slug and len(slug) > 4:
+                title = slug.title()
+            else:
+                continue
+
         if len(title) > 200:
             title = title[:200].rsplit(" ", 1)[0] + "…"
         if title_excluded(title):

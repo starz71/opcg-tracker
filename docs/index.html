@@ -203,6 +203,24 @@ main { max-width: 1480px; margin: 0 auto; padding: 32px 40px; }
 .lang-chip[data-lang="JP"].active { color: var(--magenta); background: rgba(255, 61, 138, 0.1); }
 .lang-chip[data-lang="??"].active { color: var(--text-dim); background: rgba(139, 146, 184, 0.1); }
 
+.type-chip {
+  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border);
+  color: var(--text-dim); padding: 8px 14px; border-radius: 8px;
+  font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: all 0.2s; user-select: none;
+  white-space: nowrap;
+}
+.type-chip.active {
+  border-color: currentColor;
+  box-shadow: 0 0 0 1px currentColor, 0 0 16px -4px currentColor;
+}
+.type-chip[data-type="display"].active { color: var(--magenta); background: rgba(255, 61, 138, 0.1); }
+.type-chip[data-type="booster"].active { color: var(--cyan); background: rgba(0, 224, 255, 0.1); }
+.type-chip[data-type="starter"].active { color: var(--violet); background: rgba(139, 92, 246, 0.1); }
+.type-chip[data-type="box"].active     { color: var(--gold); background: rgba(255, 184, 0, 0.1); }
+.type-chip[data-type="case"].active    { color: var(--orange); background: rgba(255, 138, 61, 0.1); }
+.type-chip[data-type="other"].active   { color: var(--text-dim); background: rgba(139, 146, 184, 0.1); }
+
 .fav-toggle {
   background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.3);
   color: var(--gold); padding: 8px 14px; border-radius: 8px;
@@ -353,6 +371,11 @@ main { max-width: 1480px; margin: 0 auto; padding: 32px 40px; }
   background: rgba(0, 0, 0, 0.5); color: white;
   padding: 1px 5px; border-radius: 4px; font-weight: 600;
   letter-spacing: 0.1em; z-index: 2;
+}
+.set-art .type-badge {
+  position: absolute; bottom: 3px; right: 3px;
+  font-size: 0.85rem; z-index: 2;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
 /* Couleurs par franchise */
 .set-art.fr-OP  { background: linear-gradient(135deg, #ff3d8a 0%, #8b5cf6 100%); }
@@ -622,6 +645,17 @@ footer .heart { color: var(--magenta); }
 
   <div class="filters">
     <div class="filter-group">
+      <span class="lab">Type</span>
+      <div class="lang-chips" id="typeChips">
+        <span class="type-chip active" data-type="display">📦 Display</span>
+        <span class="type-chip" data-type="booster">🎴 Booster</span>
+        <span class="type-chip" data-type="starter">🎯 Starter</span>
+        <span class="type-chip" data-type="box">🎁 Box</span>
+        <span class="type-chip" data-type="case">📚 Case</span>
+        <span class="type-chip" data-type="other">• Autre</span>
+      </div>
+    </div>
+    <div class="filter-group">
       <span class="lab">Langues</span>
       <div class="lang-chips" id="langChips">
         <span class="lang-chip active" data-lang="FR">FR</span>
@@ -705,6 +739,7 @@ const HISTORY_URL = "https://raw.githubusercontent.com/starz71/opcg-tracker/main
 const SET_RE = /\b(OP|EB|PRB|ST)\s*[-_]?\s*(\d{1,2})\b/i;
 const FAV_KEY = "opcg-favs-v2";
 const ACTIVE_LANGS_KEY = "opcg-langs-v1";
+const ACTIVE_TYPES_KEY = "opcg-types-v1";
 
 let allListings = [];
 let groups = [];
@@ -715,60 +750,72 @@ let sortMode = "price-asc";
 let favOnly = false;
 let favs = new Set();
 let activeLangs = new Set(["FR", "EN", "??"]);
+let activeTypes = new Set(["display"]);  // par défaut : seuls les displays
 let expandedGroups = new Set();
 
-// ────── DEMO DATA (avec précommandes) ──────
+// ────── DEMO DATA (avec types variés) ──────
 const DEMO_DATA = (() => {
   const sites = ["Philibert", "Tofopolis", "Ludisphère", "Masterset", "BCD Jeux", "Mondes Fantastiques", "Fantastik", "Maxi Rêves", "Nippon TCG"];
+  // base = prix typique d'un display (90-150€). Pour les autres types on ajuste
+  // automatiquement (boosters = base/24, starters = ~15€, etc.)
   const products = [
-    { code: "OP-16", lang: "FR", name: "The Time of Battle", base: 145, status: "preorder" },
-    { code: "OP-16", lang: "EN", name: "The Time of Battle", base: 138, status: "preorder" },
-    { code: "OP-16", lang: "JP", name: "The Time of Battle", base: 110, status: "in" },
-    { code: "OP-15", lang: "FR", name: "Adventure on Kami's Island", base: 132, status: "in" },
-    { code: "OP-15", lang: "EN", name: "Adventure on Kami's Island", base: 125, status: "mixed" },
-    { code: "OP-12", lang: "FR", name: "Legacy of the Master", base: 105, status: "in" },
-    { code: "OP-12", lang: "EN", name: "Legacy of the Master", base: 98, status: "out" },
-    { code: "OP-09", lang: "FR", name: "Emperors in the New World", base: 165, status: "in" },
-    { code: "EB-03", lang: "FR", name: "Heroines Edition", base: 89, status: "in" },
-    { code: "EB-03", lang: "EN", name: "Heroines Edition", base: 85, status: "preorder" },
-    { code: "EB-04", lang: "JP", name: "Egghead Crisis", base: 120, status: "preorder" },
-    { code: "PRB-02", lang: "FR", name: "The Best Vol.2", base: 75, status: "out" },
+    { code: "OP-16", lang: "FR", name: "The Time of Battle", base: 145, status: "preorder", types: ["display", "booster"] },
+    { code: "OP-16", lang: "EN", name: "The Time of Battle", base: 138, status: "preorder", types: ["display"] },
+    { code: "OP-16", lang: "JP", name: "The Time of Battle", base: 110, status: "in", types: ["display", "booster"] },
+    { code: "OP-15", lang: "FR", name: "Adventure on Kami's Island", base: 132, status: "in", types: ["display", "booster"] },
+    { code: "OP-15", lang: "EN", name: "Adventure on Kami's Island", base: 125, status: "mixed", types: ["display"] },
+    { code: "OP-12", lang: "FR", name: "Legacy of the Master", base: 105, status: "in", types: ["display", "booster"] },
+    { code: "OP-12", lang: "EN", name: "Legacy of the Master", base: 98, status: "out", types: ["display"] },
+    { code: "OP-09", lang: "FR", name: "Emperors in the New World", base: 165, status: "in", types: ["display"] },
+    { code: "EB-03", lang: "FR", name: "Heroines Edition", base: 89, status: "in", types: ["display", "booster"] },
+    { code: "EB-03", lang: "EN", name: "Heroines Edition", base: 85, status: "preorder", types: ["display"] },
+    { code: "EB-04", lang: "JP", name: "Egghead Crisis", base: 120, status: "preorder", types: ["display"] },
+    { code: "PRB-02", lang: "FR", name: "The Best Vol.2", base: 75, status: "out", types: ["display"] },
+    // Quelques starters
+    { code: "ST-25", lang: "FR", name: "Edward Newgate", base: 14, status: "in", types: ["starter"] },
+    { code: "ST-26", lang: "FR", name: "Three Brothers", base: 16, status: "in", types: ["starter"] },
   ];
+  const TYPE_PRICE_MULT = { display: 1.0, booster: 1.0/24, starter: 1.0, box: 0.4, case: 12.0, other: 1.0 };
+  const TYPE_TITLE_PREFIX = {
+    display: "Display", booster: "Booster", starter: "Starter Deck",
+    box: "Coffret", case: "Case", other: "Produit",
+  };
   const now = Date.now();
   const HOUR = 3600 * 1000, DAY = 24 * HOUR;
   const result = {};
   let idx = 0;
   for (const p of products) {
-    const numSites = 1 + Math.floor(Math.random() * 4);
-    const usedSites = [...sites].sort(() => Math.random() - 0.5).slice(0, numSites);
-    let firstSite = true;
-    for (const site of usedSites) {
-      idx++;
-      const lid = `demo_${idx}`;
-      const numPoints = 5 + Math.floor(Math.random() * 15);
-      const startTime = now - (10 + Math.random() * 5) * DAY;
-      const prices = [];
-      let price = p.base + (Math.random() - 0.5) * 8;
-      for (let i = 0; i < numPoints; i++) {
-        price += (Math.random() - 0.45) * 4;
-        price = Math.max(p.base * 0.7, Math.min(p.base * 1.3, price));
-        const t = startTime + (i / numPoints) * (now - startTime) + (Math.random() - 0.5) * HOUR;
-        prices.push({ date: new Date(t).toISOString(), price: Math.round(price * 100) / 100 });
+    for (const ptype of p.types) {
+      const numSites = 1 + Math.floor(Math.random() * 4);
+      const usedSites = [...sites].sort(() => Math.random() - 0.5).slice(0, numSites);
+      for (const site of usedSites) {
+        idx++;
+        const lid = `demo_${idx}`;
+        const baseAdj = p.base * TYPE_PRICE_MULT[ptype];
+        const numPoints = 5 + Math.floor(Math.random() * 15);
+        const startTime = now - (10 + Math.random() * 5) * DAY;
+        const prices = [];
+        let price = baseAdj + (Math.random() - 0.5) * baseAdj * 0.1;
+        for (let i = 0; i < numPoints; i++) {
+          price += (Math.random() - 0.45) * baseAdj * 0.03;
+          price = Math.max(baseAdj * 0.7, Math.min(baseAdj * 1.3, price));
+          const t = startTime + (i / numPoints) * (now - startTime) + (Math.random() - 0.5) * HOUR;
+          prices.push({ date: new Date(t).toISOString(), price: Math.round(price * 100) / 100 });
+        }
+        let myStatus;
+        if (p.status === "in")       myStatus = "in";
+        else if (p.status === "out") myStatus = "out";
+        else if (p.status === "preorder") myStatus = "preorder";
+        else { myStatus = ["in", "out", "preorder"][Math.floor(Math.random() * 3)]; }
+        result[lid] = {
+          title: `${TYPE_TITLE_PREFIX[ptype]} ${p.code} ${p.name} ${p.lang}`,
+          url: `https://example.com/${p.code.toLowerCase()}-${ptype}-${site.toLowerCase().replace(/\s+/g, '-')}`,
+          site: site, prices: prices,
+          last_status: myStatus,
+          last_seen: new Date(now - Math.random() * 6 * HOUR).toISOString(),
+          product_type: ptype,
+        };
       }
-      // Détermine le statut individuel selon le statut groupe
-      let myStatus;
-      if (p.status === "in")       myStatus = "in";
-      else if (p.status === "out") myStatus = "out";
-      else if (p.status === "preorder") myStatus = "preorder";
-      else { /* mixed */ myStatus = ["in", "out", "preorder"][Math.floor(Math.random() * 3)]; }
-      result[lid] = {
-        title: `Display ${p.code} ${p.name} ${p.lang}`,
-        url: `https://example.com/${p.code.toLowerCase()}-${site.toLowerCase().replace(/\s+/g, '-')}`,
-        site: site, prices: prices,
-        last_status: myStatus,
-        last_seen: new Date(now - Math.random() * 6 * HOUR).toISOString(),
-      };
-      firstSite = false;
     }
   }
   return result;
@@ -789,6 +836,27 @@ function detectLang(title) {
   if (/\b(fr|francais|français)\b/.test(t))   return "FR";
   return "??";
 }
+// Détection du type de produit (display, booster, starter, box, case, other)
+// Mêmes règles que le tracker.py côté serveur, en fallback côté client.
+function detectProductType(title) {
+  if (!title) return "other";
+  const t = title.toLowerCase();
+  // ⚠ ORDRE IMPORTANT : Display avant Booster
+  if (/\bcase\b|\bcarton\b|12\s*x?\s*(display|booster\s*box)|lot de 12/.test(t)) return "case";
+  if (/\bdisplay\b|booster\s*box|bo[iî]te\s+de\s+booster|\bbb\b/.test(t)) return "display";
+  if (/\bstarter\b|\bdeck de d[ée]marrage\b|structure\s*deck|\bsd\b/.test(t)) return "starter";
+  if (/\bbooster\b|\bsachet\b|\bpack\b/.test(t) && !/\bbox\b|\bdisplay\b/.test(t)) return "booster";
+  if (/\bgift\s*box\b|\bcoffret\b|\btournament\s*pack\b|\bbox\b/.test(t) && !/booster/.test(t)) return "box";
+  return "other";
+}
+const TYPE_LABELS = {
+  display:  { label: "Display",  icon: "📦", color: "var(--magenta)" },
+  booster:  { label: "Booster",  icon: "🎴", color: "var(--cyan)" },
+  starter:  { label: "Starter",  icon: "🎯", color: "var(--violet)" },
+  box:      { label: "Box",      icon: "🎁", color: "var(--gold)" },
+  case:     { label: "Case",     icon: "📚", color: "var(--orange)" },
+  other:    { label: "Autres",   icon: "•",  color: "var(--text-faded)" },
+};
 function relTime(iso) {
   if (!iso) return "—";
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -829,13 +897,15 @@ function parseRaw(data) {
     const first = prices[0];
     const change = (first && last && first.price !== last.price)
       ? ((last.price - first.price) / first.price) * 100 : 0;
+    const title = h.title || "(sans titre)";
     return {
       lid,
-      title: h.title || "(sans titre)",
+      title,
       url: h.url || "#",
       site: h.site || "—",
-      set: detectSet(h.title),
-      lang: detectLang(h.title),
+      set: detectSet(title),
+      lang: detectLang(title),
+      ptype: h.product_type || detectProductType(title),  // fallback client si tracker pas à jour
       price: last ? last.price : null,
       change,
       lastSeen: h.last_seen || (last ? last.date : null),
@@ -880,9 +950,12 @@ async function load() {
 function buildGroups() {
   const map = new Map();
   for (const l of allListings) {
-    const key = l.set ? `${l.set}::${l.lang}` : `__OTHER__::${l.lang}`;
+    // Clé : (set, lang, type) — un display et un booster du même set sont 2 groupes distincts
+    const key = l.set
+      ? `${l.set}::${l.lang}::${l.ptype}`
+      : `__OTHER__::${l.lang}::${l.ptype}`;
     if (!map.has(key)) {
-      map.set(key, { key, set: l.set, lang: l.lang, listings: [] });
+      map.set(key, { key, set: l.set, lang: l.lang, ptype: l.ptype, listings: [] });
     }
     map.get(key).listings.push(l);
   }
@@ -947,6 +1020,7 @@ function getRecentSets() {
 function renderGroups() {
   let rows = [...groups];
   rows = rows.filter(g => activeLangs.has(g.lang));
+  rows = rows.filter(g => activeTypes.has(g.ptype));
 
   if (view === "recent") {
     const recent = getRecentSets();
@@ -1023,6 +1097,7 @@ function renderGroups() {
 function renderGroupRow(g) {
   const isExp = expandedGroups.has(g.key);
   const isFav = favs.has(g.key);
+  const typeMeta = TYPE_LABELS[g.ptype] || TYPE_LABELS.other;
 
   // SET ART (option B : logo + code, dégradé selon franchise)
   const franchise = setFranchise(g.set);
@@ -1031,15 +1106,18 @@ function renderGroupRow(g) {
     <div class="set-art fr-${franchise}">
       <div class="code">${codeOnly.replace("-", "<br>")}</div>
       ${g.lang !== "??" ? `<div class="lang">${g.lang}</div>` : ""}
+      <div class="type-badge">${typeMeta.icon}</div>
     </div>`;
 
-  // Nom propre
+  // Nettoyage du nom : retirer code de set, type, langue pour ne garder que le nom du set
   const sample = g.listings[0];
-  let cleanName = sample.title.replace(SET_RE, "").replace(/\bDisplay\b/i, "").trim();
+  let cleanName = sample.title.replace(SET_RE, "");
+  // retire les mots de type
+  cleanName = cleanName.replace(/\b(display|booster\s*box|bo[iî]te\s+de\s+booster|booster|sachet|pack|starter\s*deck|starter|deck de d[ée]marrage|structure\s*deck|sd|case|carton|gift\s*box|coffret|tournament\s*pack|box|bb)\b/gi, "");
   cleanName = cleanName.replace(/\b(FR|EN|JP|JAP|JAPONAIS|JAPAN|FRANCAIS|FRANÇAIS|ENGLISH|ANGLAIS)\b/gi, "").trim();
   cleanName = cleanName.replace(/\s+/g, " ").replace(/^[\s\-_,]+|[\s\-_,]+$/g, "");
   if (cleanName.length > 50) cleanName = cleanName.slice(0, 50) + "…";
-  if (!cleanName) cleanName = "Display";
+  if (!cleanName) cleanName = typeMeta.label;
 
   const fullName = g.set
     ? `${cleanName}`
@@ -1077,7 +1155,7 @@ function renderGroupRow(g) {
       ${setArt}
       <div class="group-name">
         <span class="full">${escapeHtml(fullName)}</span>
-        <span class="meta">${g.set ? `${g.set} · ${g.lang === "??" ? "Lang. inconnue" : g.lang}` : "Sans code"} · ${g.total} site${g.total > 1 ? "s" : ""}</span>
+        <span class="meta">${g.set ? `${g.set} · ${g.lang === "??" ? "Lang?" : g.lang}` : "Sans code"} · <strong style="color:${typeMeta.color}">${typeMeta.icon} ${typeMeta.label}</strong> · ${g.total} site${g.total > 1 ? "s" : ""}</span>
       </div>
       <span>${stockPill}</span>
       <div class="price-info">
@@ -1361,10 +1439,13 @@ function loadFavs() {
     if (raw) favs = new Set(JSON.parse(raw));
     const langRaw = localStorage.getItem(ACTIVE_LANGS_KEY);
     if (langRaw) activeLangs = new Set(JSON.parse(langRaw));
+    const typeRaw = localStorage.getItem(ACTIVE_TYPES_KEY);
+    if (typeRaw) activeTypes = new Set(JSON.parse(typeRaw));
   } catch {}
 }
 function saveFavs() { try { localStorage.setItem(FAV_KEY, JSON.stringify([...favs])); } catch {} }
 function saveLangs() { try { localStorage.setItem(ACTIVE_LANGS_KEY, JSON.stringify([...activeLangs])); } catch {} }
+function saveTypes() { try { localStorage.setItem(ACTIVE_TYPES_KEY, JSON.stringify([...activeTypes])); } catch {} }
 
 // ────── EVENTS ──────
 document.querySelectorAll(".tab").forEach(t => {
@@ -1382,6 +1463,15 @@ document.getElementById("langChips").addEventListener("click", e => {
   else activeLangs.add(lang);
   e.target.classList.toggle("active", activeLangs.has(lang));
   saveLangs();
+  renderGroups();
+});
+document.getElementById("typeChips").addEventListener("click", e => {
+  if (!e.target.classList.contains("type-chip")) return;
+  const ptype = e.target.dataset.type;
+  if (activeTypes.has(ptype)) activeTypes.delete(ptype);
+  else activeTypes.add(ptype);
+  e.target.classList.toggle("active", activeTypes.has(ptype));
+  saveTypes();
   renderGroups();
 });
 document.getElementById("filterText").addEventListener("input", renderGroups);
@@ -1410,6 +1500,9 @@ document.getElementById("demoToggle").addEventListener("click", () => {
 loadFavs();
 document.querySelectorAll(".lang-chip").forEach(c => {
   c.classList.toggle("active", activeLangs.has(c.dataset.lang));
+});
+document.querySelectorAll(".type-chip").forEach(c => {
+  c.classList.toggle("active", activeTypes.has(c.dataset.type));
 });
 
 const adapter = document.createElement("script");

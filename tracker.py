@@ -50,8 +50,6 @@ PRICE_DROP_THRESHOLD = 0.97  # notifie si le prix tombe sous 97% de l'ancien
 DEFAULT_COOLDOWN_HOURS = 24  # ne pas re-notifier le même produit dans X heures
 
 # Mots-clés qui indiquent une RUPTURE DE STOCK (le produit est ignoré).
-# On garde les précommandes, donc "précommande" / "preorder" ne sont PAS dans
-# cette liste — un produit en précommande déclenchera bien une notif.
 OUT_OF_STOCK_MARKERS = [
     "rupture", "épuisé", "epuise", "indisponible", "non disponible",
     "out of stock", "sold out", "soldout", "sold-out",
@@ -61,6 +59,18 @@ OUT_OF_STOCK_MARKERS = [
 OUT_OF_STOCK_CSS_HINTS = [
     "out-of-stock", "outofstock", "sold-out", "soldout",
     "unavailable", "no-stock", "nostock",
+]
+# Marqueurs de précommande (le produit est suivi mais marqué "preorder")
+PREORDER_MARKERS = [
+    "précommande", "precommande", "pré-commande", "pre-commande",
+    "preorder", "pre-order", "pre order",
+    "à paraître", "a paraitre", "à venir", "a venir",
+    "sortie le", "sortie prévue", "disponible le", "dispo le",
+    "available on", "release date", "release on",
+    "réservation", "reservation",
+]
+PREORDER_CSS_HINTS = [
+    "preorder", "pre-order", "precommande", "pré-commande",
 ]
 
 # Sélecteurs CSS par plateforme — utilisés en fallback automatique quand un
@@ -221,14 +231,66 @@ def is_out_of_stock(card, availability_text=""):
 
     # 3. Vérifier le texte global de la carte (dernier recours, prudent)
     card_text = card.get_text(" ", strip=True).lower()
-    # On cherche les marqueurs forts ; on évite "rupture" seul qui peut être
-    # dans un message générique. On exige une co-occurrence avec d'autres mots.
     if "sold out" in card_text or "soldout" in card_text:
         return True
     if "rupture de stock" in card_text or "stock épuisé" in card_text:
         return True
 
     return False
+
+def is_preorder(card, availability_text="", title=""):
+    """Détecte si un produit est en précommande (et non en stock immédiat)."""
+    # 1. Texte d'availability
+    if availability_text:
+        low = availability_text.lower()
+        for marker in PREORDER_MARKERS:
+            if marker in low:
+                return True
+    # 2. Classes CSS
+    card_html = str(card.attrs) + " " + " ".join(
+        " ".join(c.get("class") or []) for c in card.find_all(class_=True, recursive=False)
+    )
+    card_html_low = card_html.lower()
+    for hint in PREORDER_CSS_HINTS:
+        if hint in card_html_low:
+            return True
+    # 3. Titre du produit
+    if title:
+        title_low = title.lower()
+        for marker in ["précommande", "precommande", "preorder", "pre-order"]:
+            if marker in title_low:
+                return True
+    return False
+
+# ───── Détection du type de produit (Display, Booster, Starter, etc.) ─────
+PRODUCT_TYPE_RULES = [
+    # (label,        liste de patterns regex à tester sur le titre lower-case,
+    #                liste de mots-clés DISQUALIFIANTS qui empêchent de matcher)
+    # ⚠ ORDRE IMPORTANT : Display avant Booster (Booster Box = Display, pas Booster)
+    ("case",     [r"\bcase\b", r"\bcarton\b",
+                  r"12\s*x?\s*(display|booster\s*box)", r"lot de 12"], []),
+    ("display",  [r"\bdisplay\b", r"booster\s*box", r"bo[iî]te\s+de\s+booster", r"\bbb\b"], []),
+    ("starter",  [r"\bstarter\b", r"\bdeck de d[ée]marrage\b", r"structure\s*deck",
+                  r"\bsd\b"], []),
+    ("box",      [r"\bgift\s*box\b", r"\bcoffret\b", r"\btournament\s*pack\b",
+                  r"\bbox\b"], ["booster"]),  # "Booster Box" → exclut box
+    ("booster",  [r"\bbooster\b", r"\bsachet\b", r"\bpack\b"],
+                 ["box", "display"]),
+]
+
+def detect_product_type(title):
+    """Renvoie 'display', 'booster', 'starter', 'box', 'case' ou 'other'."""
+    if not title:
+        return "other"
+    t = title.lower()
+    for label, patterns, disq in PRODUCT_TYPE_RULES:
+        # Disqualifiants : si présents, on saute ce label
+        if any(d in t for d in disq):
+            continue
+        for p in patterns:
+            if re.search(p, t):
+                return label
+    return "other"
 
 # ───────────────────────────── Recherche site ─────────────────────────
 def search_site(session, site, query):
@@ -320,20 +382,25 @@ def scrape_category(session, site):
         avail = text_of(card.select_one(sel.get("availability"))) if sel.get("availability") else ""
         if not (title and href):
             continue
-        # On garde TOUT (OOS et en stock) mais on marque l'état pour que
-        # process_alert puisse détecter les transitions OOS → en stock
-        # et bypasser le cooldown dans ce cas (le retour en stock est une
-        # info critique, jamais à filtrer).
+        # Calcul du statut : out / preorder / in
         oos = is_out_of_stock(card, avail)
         if oos:
+            status = "out"
             skipped_oos += 1
+        elif is_preorder(card, avail, title):
+            status = "preorder"
+        else:
+            status = "in"
+        ptype = detect_product_type(title)
         results.append({
             "title": title,
             "url": urljoin(url, href),
             "price": price,
             "site": site["name"],
             "availability": avail,
-            "is_oos": oos,
+            "is_oos": oos,            # legacy : encore utilisé par les transitions
+            "status": status,         # nouveau : in / preorder / out
+            "product_type": ptype,    # display / booster / starter / box / case / other
         })
     if skipped_oos:
         log(f"({skipped_oos} produits en rupture détectés et suivis pour transitions)", indent=2)
@@ -808,17 +875,27 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
         lid = listing_id(listing)
         akey = f"{alert['name']}::{lid}"
         cur_oos = bool(listing.get("is_oos"))
+        cur_status = listing.get("status", "unknown")
+        cur_ptype = listing.get("product_type", "other")
 
-        # Historique de prix : on logue uniquement quand le produit est en stock
-        # (sinon on pollue le tracker avec des "rupture" répétées)
-        if not cur_oos:
-            h = history.setdefault(lid, {
-                "title": listing["title"], "url": listing["url"],
-                "site": listing["site"], "prices": [],
-            })
-            if listing.get("price") is not None:
-                if not h["prices"] or h["prices"][-1]["price"] != listing["price"]:
-                    h["prices"].append({"date": now_iso, "price": listing["price"]})
+        # On enregistre TOUJOURS l'entrée history (même pour les OOS) avec
+        # last_status / last_seen / product_type pour que le dashboard puisse
+        # afficher correctement les pastilles et filtrer par type.
+        h = history.setdefault(lid, {
+            "title": listing["title"], "url": listing["url"],
+            "site": listing["site"], "prices": [],
+        })
+        h["title"] = listing["title"]
+        h["url"] = listing["url"]
+        h["site"] = listing["site"]
+        h["last_status"] = cur_status
+        h["last_seen"] = now_iso
+        h["product_type"] = cur_ptype
+        # Le PRIX n'est ajouté que si on est en stock ou en pré-co (sinon le
+        # prix d'un produit OOS peut être trompeur — c'est un "ancien prix").
+        if not cur_oos and listing.get("price") is not None:
+            if not h["prices"] or h["prices"][-1]["price"] != listing["price"]:
+                h["prices"].append({"date": now_iso, "price": listing["price"]})
 
         prev = seen.get(akey)
         prev_oos = prev.get("is_oos") if prev else None  # None = jamais vu

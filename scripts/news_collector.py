@@ -604,6 +604,24 @@ def prune_old(hist: dict, days: int = ROLLING_WINDOW_DAYS) -> int:
     return before - len(hist["items"])
 
 
+def prune_excluded(hist: dict) -> int:
+    """Supprime les entrées de news_history.json qui ne respectent plus
+    les règles d'exclusion actuelles (URL pattern, titre).
+    Permet de nettoyer rétroactivement après avoir ajouté un nouveau filtre."""
+    before = len(hist["items"])
+    kept = {}
+    for k, v in hist["items"].items():
+        url = v.get("url", "")
+        title = v.get("title", "")
+        if url_excluded(url):
+            continue
+        if title_excluded(title):
+            continue
+        kept[k] = v
+    hist["items"] = kept
+    return before - len(kept)
+
+
 def merge_into_history(hist: dict, items: list[dict]) -> tuple[int, int]:
     """Ajoute les nouvelles annonces, met à jour les sources des anciennes.
     Renvoie (nouveau, mis_a_jour)."""
@@ -649,6 +667,9 @@ def main():
     pruned = prune_old(hist)
     if pruned:
         log(f"🗑️  {pruned} ancienne(s) annonce(s) supprimée(s) (>{ROLLING_WINDOW_DAYS}j)")
+    pruned_excl = prune_excluded(hist)
+    if pruned_excl:
+        log(f"🚫 {pruned_excl} annonce(s) exclue(s) (sleeves, accessoires, etc.)")
     new_count, upd_count = merge_into_history(hist, deduped)
     save_history(hist)
     log(f"✅ {new_count} nouvelle(s) · {upd_count} mise(s) à jour · {len(hist['items'])} en stock")

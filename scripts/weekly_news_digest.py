@@ -383,6 +383,100 @@ def _looks_like_just_a_date(text: str) -> bool:
     return any(_re.match(p, t) for p in patterns)
 
 
+_TITLE_STOP_WORDS = {
+    # Mots vides FR/EN qu'on ignore pour le calcul de similarité
+    "the", "and", "of", "for", "to", "in", "on", "at", "is", "a", "an",
+    "le", "la", "les", "de", "du", "des", "et", "ou", "un", "une",
+    "vol", "edition", "card", "cards", "products", "produits", "official",
+    "one", "piece", "tcg", "game", "carte", "cartes", "boutiques",
+    "exclusive", "exclusif", "shops",
+}
+
+
+def _title_keywords(title: str) -> set:
+    """Extrait les mots significatifs d'un titre."""
+    if not title:
+        return set()
+    import re as _re
+    words = _re.findall(r"[a-z0-9àâäéèêëïîôöùûüÿç]+", title.lower())
+    return {w for w in words if len(w) >= 3 and w not in _TITLE_STOP_WORDS}
+
+
+def _title_similarity(t1: str, t2: str) -> float:
+    """Jaccard similarité entre les mots-clés de 2 titres."""
+    k1, k2 = _title_keywords(t1), _title_keywords(t2)
+    if not k1 or not k2:
+        return 0.0
+    return len(k1 & k2) / len(k1 | k2)
+
+
+def fuse_similar_titles(items: list, min_similarity: float = 0.5) -> list:
+    """Re-fusionne les items dont les vrais titres ('_resolved_title') sont
+    similaires ET qui ont la même date de publication.
+
+    Cas typique : Playmat annoncé le 16/02/2026 sur 2 pages différentes (FR/EN)
+    avec des paths URL différents mais le même nom commercial."""
+    LANG_PRIORITY = {"FR": 3, "EN": 2, "JP": 1}
+    if not items:
+        return items
+
+    groups = []
+    for item in items:
+        item_title = item.get("_resolved_title") or item.get("title", "")
+        item_date = item.get("published_date", "")
+
+        # Skip si titre dégénéré ou vide
+        if not item_title or _looks_like_just_a_date(item_title):
+            groups.append([item])
+            continue
+
+        matched_group = None
+        for g in groups:
+            for existing in g:
+                ex_title = existing.get("_resolved_title") or existing.get("title", "")
+                ex_date = existing.get("published_date", "")
+                if not ex_date or not item_date or ex_date != item_date:
+                    continue
+                if _looks_like_just_a_date(ex_title):
+                    continue
+                sim = _title_similarity(item_title, ex_title)
+                if sim >= min_similarity:
+                    matched_group = g
+                    break
+            if matched_group:
+                break
+
+        if matched_group:
+            matched_group.append(item)
+        else:
+            groups.append([item])
+
+    # Reconstruction
+    merged = []
+    for group in groups:
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        group.sort(key=lambda x: LANG_PRIORITY.get(x.get("lang", ""), 0), reverse=True)
+        primary = dict(group[0])
+        existing_sources = list(primary.get("sources", []))
+        existing_langs = {s.get("lang") for s in existing_sources}
+        for g in group[1:]:
+            for src in g.get("sources", [{
+                "lang": g.get("lang"),
+                "label": g.get("source_label"),
+                "name": g.get("source_name"),
+                "url": g.get("url"),
+                "published_date": g.get("published_date"),
+            }]):
+                if src.get("lang") not in existing_langs:
+                    existing_sources.append(src)
+                    existing_langs.add(src.get("lang"))
+        primary["sources"] = existing_sources
+        merged.append(primary)
+    return merged
+
+
 # Compatibilité descendante (renvoie juste la description)
 def fetch_excerpt(url: str, lang: str, max_chars: int = 280) -> str:
     _, description, _ = fetch_article_data(url, lang, max_chars)
@@ -428,18 +522,30 @@ def format_announcement(item: dict) -> tuple[str, Optional[str]]:
     lang = item.get("lang", "??")
     is_jp = lang == "JP"
 
-    # Récupère titre + résumé + image depuis la fiche détaillée
+    # Récupère titre + résumé + image (depuis le cache si déjà résolu, sinon fetch)
     primary_url = item.get("url", "")
-    detail_title, summary, better_image = fetch_article_data(primary_url, lang)
+    detail_title = item.get("_resolved_title", "")
+    summary = item.get("_resolved_description", "")
+    better_image = item.get("_resolved_image", "")
+    if not (detail_title or summary or better_image):
+        detail_title, summary, better_image = fetch_article_data(primary_url, lang)
+
+    # Logging détaillé pour debug
+    log(f"      📄 detail_title='{detail_title[:60]}' (raw='{raw_title[:40]}')", indent=1)
+    log(f"      🖼️  better_image={'OUI' if better_image else 'NON'}  (orig={'OUI' if item.get('image_url') else 'NON'})", indent=1)
 
     # On préfère le titre de la fiche détaillée s'il est plus informatif
     # (le titre de la liste tombe parfois sur "Sleeve033" ou une date)
+    override_title = False
     if detail_title and (
         len(detail_title) > len(raw_title) + 5
         or _looks_like_url_segment(raw_title)
         or _looks_like_just_a_date(raw_title)
     ):
         raw_title = detail_title
+        override_title = True
+
+    log(f"      ✏️  title_override={'OUI' if override_title else 'NON'}  -> '{raw_title[:60]}'", indent=1)
 
     # Traduit si JP
     title = translate_to_fr(raw_title) if is_jp else raw_title
@@ -534,6 +640,30 @@ def main():
     if not items:
         log("ℹ️  Aucune annonce cette semaine, pas d'envoi.")
         sys.exit(0)
+
+    # Pré-résolution des vrais titres + descriptions + images depuis les fiches
+    # détaillées. Mis en cache dans _resolved_* pour éviter de refetch dans
+    # format_announcement, et utilisé pour la fusion par titre similaire.
+    log("🔍 Résolution des titres réels depuis les fiches produit…")
+    for item in items:
+        url = item.get("url", "")
+        if not url:
+            continue
+        d_title, d_desc, d_image = fetch_article_data(url, item.get("lang", "FR"))
+        if d_title:
+            item["_resolved_title"] = d_title
+        if d_desc:
+            item["_resolved_description"] = d_desc
+        if d_image:
+            item["_resolved_image"] = d_image
+
+    # Fusion supplémentaire : pour les annonces non encore fusionnées, on tente
+    # une fusion par "même date + titre similaire". Cas : Playmat 16/02/2026
+    # qui sort en FR et EN avec des paths URL différents mais le même nom commercial.
+    before_fusion = len(items)
+    items = fuse_similar_titles(items, min_similarity=0.5)
+    if len(items) < before_fusion:
+        log(f"🔗 {before_fusion - len(items)} annonce(s) fusionnée(s) par titre similaire")
 
     # 1. Message header
     header = format_digest_header(items)

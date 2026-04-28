@@ -194,15 +194,23 @@ def scrape_fr_topics(source: dict) -> list[dict]:
     # Le site utilise des cards avec date, catégorie en majuscules, titre
     # Structure type observée :
     # <a href="..."><img/><span>19 mars 2026</span><span>PRODUITS</span><h3>...</h3></a>
+    seen_urls = set()
     for link in soup.select("a[href]"):
         href = link.get("href", "")
-        if not href or "topics" not in href and "products" not in href:
+        if not re.search(r"/(topics|products|cardlist)/[^/]+", href):
             continue
+        full_url = urljoin(source["base"], href)
+        if full_url in seen_urls:
+            continue
+        seen_urls.add(full_url)
         text = link.get_text(" ", strip=True)
         if not text or len(text) < 20:
             continue
-        # Extraire date, catégorie, titre depuis le bloc
-        # Cherche d'abord la catégorie (un mot en majuscules connu)
+        # EXIGENCE : date présente au format FR "19 mars 2026"
+        date_match = re.search(r"\d{1,2}\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+\d{4}", text, re.I)
+        if not date_match:
+            continue
+        date_iso = parse_date_french(date_match.group(0))
         category = None
         for cat in KEEP_CATEGORIES_FR:
             if cat in text:
@@ -210,27 +218,23 @@ def scrape_fr_topics(source: dict) -> list[dict]:
                 break
         if not category:
             continue
-        # Date : avant la catégorie
-        date_match = re.search(r"\d{1,2}\s+\w+\s+\d{4}", text)
-        date_iso = parse_date_french(date_match.group(0)) if date_match else None
         # Titre : ce qui suit la catégorie
-        # On cherche après le mot de catégorie
         idx = text.find(category)
         title = text[idx + len(category):].strip() if idx >= 0 else text
-        # Nettoyage du titre
         title = re.sub(r"^[\s.\-—:]+", "", title)
         title = re.sub(r"a été mis à jour\.?\s*$", "", title, flags=re.I).strip()
+        # Coupe les éventuels parasites de menu
+        title = re.split(r"\b(VOIR TOUT|LISTE DES|PLUS D)\b", title)[0].strip()
         if not title or len(title) < 10:
             continue
+        if len(title) > 200:
+            title = title[:200].rsplit(" ", 1)[0] + "…"
         if title_excluded(title):
             continue
-        # Image du bloc (souvent dans le link ou un <img> proche)
         img = link.find("img")
         img_url = img.get("src") if img else None
         if img_url:
             img_url = urljoin(source["base"], img_url)
-        # URL absolue
-        full_url = urljoin(source["base"], href)
         results.append({
             "title": title,
             "url": full_url,
@@ -246,52 +250,62 @@ def scrape_fr_topics(source: dict) -> list[dict]:
 
 
 def scrape_en_topics(source: dict) -> list[dict]:
-    """Scrape les pages news EN — structure légèrement différente."""
+    """Scrape les pages news EN. Structure observée :
+    chaque item a une DATE (April 15, 2026), une CATÉGORIE (PRODUCTS/NEWS/EVENTS) et un TITRE.
+    On exige la présence d'une date pour valider que c'est une vraie news (pas un menu)."""
     html = fetch_html(source["topics_url"])
     if not html:
-        # Tenter /news/ comme fallback
         html = fetch_html(source["base"] + "/news/")
         if not html:
             return []
     soup = BeautifulSoup(html, "lxml")
     results = []
-    # Structure EN : <li>/<article> avec span date, span category (PRODUCTS, NEWS, EVENTS), h3 titre
-    for item in soup.select("a[href], article, li"):
-        text = item.get_text(" ", strip=True)
+    seen_urls = set()
+    # Cible UNIQUEMENT les <a> qui pointent vers /news/ ou /products/
+    for link in soup.select("a[href]"):
+        href = link.get("href", "")
+        # Filtre URL : doit pointer vers une fiche news ou produit
+        if not re.search(r"/(news|products|topics)/[^/]+", href):
+            continue
+        # Évite les doublons d'URL
+        full_url = urljoin(source["base"], href)
+        if full_url in seen_urls:
+            continue
+        seen_urls.add(full_url)
+
+        text = link.get_text(" ", strip=True)
         if not text or len(text) < 20:
             continue
+
+        # EXIGENCE : une vraie date doit être présente dans le bloc
+        date_match = re.search(r"([A-Z][a-z]+)\s+(\d{1,2}),?\s+(\d{4})", text)
+        if not date_match:
+            continue  # pas de date = c'est probablement un menu/lien navigation
+        date_iso = parse_date_french(date_match.group(0))
+
+        # Catégorie
         category = None
         for cat in KEEP_CATEGORIES_EN:
-            # Utilise une regex avec word boundaries pour éviter les faux positifs
             if re.search(r"\b" + cat + r"\b", text):
                 category = cat
                 break
         if not category:
             continue
-        # Date EN
-        date_match = re.search(r"[A-Za-z]+\s+\d{1,2},?\s+\d{4}", text)
-        date_iso = parse_date_french(date_match.group(0)) if date_match else None
-        # Titre : après le label de catégorie
+
+        # Titre : après la catégorie
         idx = text.find(category)
         title = text[idx + len(category):].strip() if idx >= 0 else text
         title = re.sub(r"^[\s.\-—:]+", "", title)
+        # Coupe au premier "VIEW ALL" ou "READ MORE" ou date suivante (parasites menus)
+        title = re.split(r"\b(VIEW ALL|READ MORE|LATEST INFORMATION)\b", title)[0].strip()
         if not title or len(title) < 10:
             continue
-        # Tronque à 200 chars (au cas où on a aspiré du texte parasite)
         if len(title) > 200:
             title = title[:200].rsplit(" ", 1)[0] + "…"
         if title_excluded(title):
             continue
-        # URL
-        link = item if item.name == "a" else item.find("a", href=True)
-        if not link:
-            continue
-        href = link.get("href", "")
-        if not href:
-            continue
-        full_url = urljoin(source["base"], href)
-        # Image
-        img = item.find("img") if item.name != "a" else item.find("img")
+
+        img = link.find("img")
         img_url = img.get("src") if img else None
         if img_url:
             img_url = urljoin(source["base"], img_url)
@@ -316,14 +330,21 @@ def scrape_jp_topics(source: dict) -> list[dict]:
         return []
     soup = BeautifulSoup(html, "lxml")
     results = []
+    seen_urls = set()
     for link in soup.select("a[href]"):
         href = link.get("href", "")
-        if not href:
+        if not re.search(r"/(topics|products|cardlist)/[^/]+", href):
             continue
+        full_url_check = urljoin(source["base"], href)
+        if full_url_check in seen_urls:
+            continue
+        seen_urls.add(full_url_check)
         text = link.get_text(" ", strip=True)
         if not text or len(text) < 10:
             continue
-        # Catégorie JP
+        # EXIGENCE : date japonaise présente
+        if not re.search(r"\d{4}年\d{1,2}月\d{1,2}日", text):
+            continue
         category = None
         for cat in KEEP_CATEGORIES_JP:
             if cat in text:
@@ -331,7 +352,6 @@ def scrape_jp_topics(source: dict) -> list[dict]:
                 break
         if not category:
             continue
-        # Date JP : 2026年3月19日 ou 2026-03-19
         date_iso = parse_date_french(text)
         # Titre JP : tout sauf catégorie et date
         title = text

@@ -29,19 +29,24 @@ DIGEST_WINDOW_DAYS = 7  # Annonces des 7 derniers jours
 # ─────────────────── Telegram ───────────────────
 def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None) -> dict:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
+    payload = {"chat_id": str(chat_id), "text": text}
     if parse_mode:
         payload["parse_mode"] = parse_mode
-        payload["disable_web_page_preview"] = True
-    r = requests.post(url, json=payload, timeout=15)
-    return r.json() if r.text else {}
+    try:
+        r = requests.post(url, json=payload, timeout=15)
+        if r.status_code != 200:
+            log(f"[DEBUG sendMessage HTTP {r.status_code}] body={r.text[:300]}", indent=2)
+        return r.json() if r.text else {}
+    except Exception as ex:
+        log(f"[DEBUG sendMessage exception] {ex}", indent=2)
+        return {"ok": False, "description": str(ex)}
 
 
 def tg_send_photo(token: str, chat_id: str, photo_url: str, caption: str = None,
                   parse_mode: str = None) -> dict:
     """Envoie une photo via URL distante (Telegram télécharge l'image)."""
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    payload = {"chat_id": chat_id, "photo": photo_url}
+    payload = {"chat_id": str(chat_id), "photo": photo_url}
     if caption:
         # Telegram limite la caption à 1024 caractères
         if len(caption) > 1024:
@@ -49,8 +54,14 @@ def tg_send_photo(token: str, chat_id: str, photo_url: str, caption: str = None,
         payload["caption"] = caption
         if parse_mode:
             payload["parse_mode"] = parse_mode
-    r = requests.post(url, json=payload, timeout=20)
-    return r.json() if r.text else {}
+    try:
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code != 200:
+            log(f"[DEBUG sendPhoto HTTP {r.status_code}] body={r.text[:300]}", indent=2)
+        return r.json() if r.text else {}
+    except Exception as ex:
+        log(f"[DEBUG sendPhoto exception] {ex}", indent=2)
+        return {"ok": False, "description": str(ex)}
 
 
 # ─────────────────── Traduction ───────────────────
@@ -224,11 +235,13 @@ def escape_md(text: str) -> str:
 
 # ─────────────────── Main ───────────────────
 def main():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
         log("❌ TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manquant")
         sys.exit(1)
+    # Debug : montrer la longueur et le format du chat_id (pas la valeur entière)
+    log(f"🔑 Token ok ({len(token)} chars) · Chat ID format: '{chat_id[:4]}...{chat_id[-4:]}' (len={len(chat_id)})")
 
     if not HISTORY_FILE.exists():
         log("⚠️  news_history.json absent — rien à envoyer")

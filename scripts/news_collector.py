@@ -16,7 +16,7 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -102,6 +102,18 @@ SET_RE = re.compile(r"\b(OP|EB|PRB|ST|PRD|DP|TS|IB|DF|PRC)\s*[-_]?\s*(\d{1,2})\b
 
 HISTORY_FILE = Path("news_history.json")
 ROLLING_WINDOW_DAYS = 80  # on garde 80 jours d'historique
+CROSS_LANG_FUSION_DAYS = 7  # fusion FR/EN/JP si même path URL et dates < 7 jours d'écart
+
+
+def url_path_signature(url: str) -> str:
+    """Extrait le chemin URL (ce qui suit le domaine), pour matcher
+    fr.../products/other/ib06.php avec en.../products/other/ib06.php."""
+    if not url:
+        return ""
+    try:
+        return urlparse(url).path.lower().rstrip("/")
+    except Exception:
+        return ""
 
 
 # ─────────────────── Utils ───────────────────
@@ -470,30 +482,86 @@ def scrape_source(source: dict) -> list[dict]:
 
 # ─────────────────── Déduplication ───────────────────
 def make_dedup_key(item: dict) -> str:
-    """Clé qui groupe les annonces identiques entre langues.
-    Si on a un set_code → utilise le set_code (très fiable).
-    Sinon → hash du titre normalisé (moins précis mais ok)."""
+    """Clé pour la première passe de dédoublonnage.
+    Priorité : set_code > path URL > hash titre."""
     if item.get("set_code"):
         return f"set:{item['set_code']}"
+    path = url_path_signature(item.get("url", ""))
+    if path:
+        return f"path:{path}"
     return f"title:{title_hash(item.get('title', ''))}"
 
 
+def _dates_close_enough(d1_str: str, d2_str: str, max_days: int) -> bool:
+    """Vrai si 2 dates ISO sont à <= max_days d'écart. False si dates absentes."""
+    if not d1_str or not d2_str:
+        return False
+    try:
+        d1 = datetime.strptime(d1_str, "%Y-%m-%d").date()
+        d2 = datetime.strptime(d2_str, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return abs((d1 - d2).days) <= max_days
+
+
 def dedupe(items: list[dict]) -> list[dict]:
-    """Fusionne les doublons cross-langue, en privilégiant FR > EN > JP comme version affichée.
-    Le résultat conserve toutes les sources observées dans une liste 'sources'."""
+    """Fusionne les doublons cross-langue selon ces règles strictes :
+
+    1) Même path URL + dates < CROSS_LANG_FUSION_DAYS (7 j) → fusion cross-langue
+       Cas typique : la même news officielle Bandai traduite FR/EN, sortie le même
+       jour ou à quelques jours d'écart. On garde la version FR si présente.
+
+    2) Sinon → reste séparé. Cas typique : un même produit (ib06) annoncé en FR le
+       25 décembre puis en EN le 27 janvier (33 jours d'écart) → 2 messages distincts
+       car la sortie sur le marché anglophone est un nouvel événement.
+
+    JAMAIS de fusion par similarité de titre : les titres dégénérés ('19 mars 2026')
+    causeraient des faux positifs catastrophiques.
+
+    Priorité d'affichage : FR > EN > JP. Toutes les sources observées sont conservées.
+    """
     LANG_PRIORITY = {"FR": 3, "EN": 2, "JP": 1}
-    grouped = {}
+
+    # Étape 1 : grouper par signature (set / path / title-hash)
+    raw_groups = {}
     for it in items:
         key = make_dedup_key(it)
-        if key not in grouped:
-            grouped[key] = []
-        grouped[key].append(it)
+        raw_groups.setdefault(key, []).append(it)
+
+    # Étape 2 : pour les groupes qui contiennent plusieurs annonces, appliquer la
+    # règle de fenêtre temporelle. On sépare en sous-groupes selon les dates.
+    final_groups = []
+    for key, group in raw_groups.items():
+        if len(group) <= 1:
+            final_groups.append(group)
+            continue
+
+        # Sous-groupage temporel par date proche (7 jours)
+        sub_groups = []
+        for item in group:
+            placed = False
+            for sg in sub_groups:
+                # Si l'item est à moins de N jours d'AU MOINS un item du sous-groupe
+                for existing in sg:
+                    if _dates_close_enough(
+                        item.get("published_date"),
+                        existing.get("published_date"),
+                        CROSS_LANG_FUSION_DAYS
+                    ):
+                        sg.append(item)
+                        placed = True
+                        break
+                if placed:
+                    break
+            if not placed:
+                sub_groups.append([item])
+        final_groups.extend(sub_groups)
+
+    # Étape 3 : pour chaque groupe final, choisir le primaire et lister les sources
     merged = []
-    for key, group in grouped.items():
-        # Trie par priorité de langue (FR en premier)
+    for group in final_groups:
         group.sort(key=lambda x: LANG_PRIORITY.get(x.get("lang", ""), 0), reverse=True)
-        primary = dict(group[0])  # copie
-        # Liste toutes les sources rencontrées (uniques)
+        primary = dict(group[0])
         seen_langs = set()
         sources_list = []
         for g in group:

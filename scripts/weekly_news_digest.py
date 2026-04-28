@@ -202,16 +202,16 @@ def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, 
     # Priorité 1 : og:title
     og_title = soup.find("meta", attrs={"property": "og:title"})
     if og_title and og_title.get("content"):
-        candidate = og_title["content"].strip()
-        if candidate:
-            title = _clean_page_title(candidate)
+        candidate = _clean_page_title(og_title["content"].strip())
+        if candidate and not _looks_like_generic_page_title(candidate):
+            title = candidate
 
     # Priorité 2 : <h1> (mais pas si c'est le logo "ONE PIECE CARD GAME")
     if not title:
         h1 = soup.find("h1")
         if h1:
             t = h1.get_text(" ", strip=True)
-            if t and len(t) > 5 and not _looks_like_logo_title(t):
+            if t and len(t) > 5 and not _looks_like_logo_title(t) and not _looks_like_generic_page_title(t):
                 title = t
 
     # Priorité 3 : premier <h2> dans <main>/<article> (souvent le nom du produit)
@@ -225,7 +225,7 @@ def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, 
                 h2 = container.find("h2")
                 if h2:
                     t = h2.get_text(" ", strip=True)
-                    if t and len(t) > 5:
+                    if t and len(t) > 5 and not _looks_like_generic_page_title(t):
                         title = t
                         break
 
@@ -234,7 +234,7 @@ def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, 
         page_title = soup.find("title")
         if page_title:
             t = _clean_page_title(page_title.get_text(strip=True))
-            if t and len(t) > 5:
+            if t and len(t) > 5 and not _looks_like_generic_page_title(t):
                 title = t
 
     if title and len(title) > 200:
@@ -286,16 +286,47 @@ def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, 
     # ── IMAGE ──
     image_url = ""
 
-    # Priorité 1 : photo officielle du produit (img_item01.webp / .png est le standard Bandai)
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src") or ""
-        if not src:
-            continue
-        if any(pat in src.lower() for pat in ["img_item01", "img_item02", "img_item03"]):
-            image_url = urljoin(url, src)
-            break
+    # Priorité 1 : nouveau format Bandai /onepiececg/bccard/.../img_item01_*
+    # Recherche directe dans le HTML brut (parfois ces URLs sont chargées
+    # dynamiquement par JS et n'apparaissent pas dans <img src>, mais sont
+    # visibles dans le HTML brut comme références dans des scripts ou data-attr)
+    if not image_url:
+        import re as _re
+        # Pattern : /onepiececg/bccard/[lang]/products/[date]/[hash]/img_item01[_suffix].webp
+        bccard_match = _re.search(
+            r'(/onepiececg/bccard/[a-z]{2}/products/\d{4}/\d{2}/\d{2}/[A-Za-z0-9]+/img_item0[1-3][^"\'<>\s]*\.(webp|png|jpg))',
+            html
+        )
+        if bccard_match:
+            image_url = urljoin(url, bccard_match.group(1))
 
-    # Priorité 2 : og:image
+    # Priorité 2 : ancien format /renewal/images/.../img_item01.webp dans <img>/data-*/srcset
+    if not image_url:
+        for img in soup.find_all("img"):
+            for attr in ("src", "data-src", "data-original", "data-lazy-src"):
+                src = img.get(attr) or ""
+                if src and any(pat in src.lower() for pat in ["img_item01", "img_item02", "img_item03"]):
+                    if not _is_generic_image(src):
+                        image_url = urljoin(url, src)
+                        break
+            if image_url:
+                break
+
+    # Priorité 3 : balises <source srcset> dans <picture> (responsive images)
+    if not image_url:
+        for source in soup.find_all("source"):
+            srcset = source.get("srcset") or ""
+            # srcset peut contenir plusieurs URLs séparées par virgules
+            for part in srcset.split(","):
+                candidate = part.strip().split(" ")[0]
+                if candidate and any(pat in candidate.lower() for pat in ["img_item01", "img_item02", "img_item03"]):
+                    if not _is_generic_image(candidate):
+                        image_url = urljoin(url, candidate)
+                        break
+            if image_url:
+                break
+
+    # Priorité 4 : og:image (peut contenir un placeholder, on filtre)
     if not image_url:
         og_img = soup.find("meta", attrs={"property": "og:image"})
         if og_img and og_img.get("content"):
@@ -303,7 +334,7 @@ def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, 
             if candidate and not _is_generic_image(candidate):
                 image_url = urljoin(url, candidate)
 
-    # Priorité 3 : grosse image dans le contenu (fallback)
+    # Priorité 5 : grosse image dans le contenu (fallback)
     if not image_url:
         for img in soup.find_all("img"):
             src = img.get("src") or img.get("data-src") or ""
@@ -342,6 +373,25 @@ def _looks_like_logo_title(text: str) -> bool:
         return True
     low = text.lower().strip()
     return low in {"one piece card game", "one piece tcg", "ワンピースカードゲーム"}
+
+
+_GENERIC_PAGE_TITLES = {
+    # Titres de pages catalogue génériques qu'on veut rejeter (cas /cardlist/)
+    "liste des cartes", "card list", "cartes", "cards",
+    "trouver des cartes", "find cards", "cardlist",
+    "actualites", "actualités", "news", "products", "produits",
+    "events", "événements", "topics", "actualité",
+    "tous les produits", "all products", "voir tous les produits",
+    "view all products",
+}
+
+
+def _looks_like_generic_page_title(text: str) -> bool:
+    """Détecte les titres génériques de page catalogue (LISTE DES CARTES, etc.)."""
+    if not text:
+        return True
+    low = text.lower().strip()
+    return low in _GENERIC_PAGE_TITLES
 
 
 def _looks_like_url_segment(text: str) -> bool:

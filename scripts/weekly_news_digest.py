@@ -24,7 +24,7 @@ from news_collector import (
     HISTORY_FILE, fetch_html, log
 )
 
-DIGEST_WINDOW_DAYS = 7  # Annonces des 7 derniers jours
+DIGEST_WINDOW_DAYS = 10  # Annonces des 10 derniers jours (7 + 3 jours de marge)
 
 # ─────────────────── Telegram ───────────────────
 def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None) -> dict:
@@ -96,17 +96,25 @@ def translate_to_fr(text: str, source_lang: str = "auto") -> str:
 
 # ─────────────────── Sélection / formatage ───────────────────
 def filter_recent(items: dict, days: int = DIGEST_WINDOW_DAYS) -> list[dict]:
-    """Garde les annonces vues dans la fenêtre."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    """Garde les annonces dont la published_date est dans la fenêtre.
+    Si pas de published_date, on ne la retient PAS (trop risqué de remonter
+    des vieilles annonces qu'on découvre tardivement)."""
+    today = datetime.now(timezone.utc).date()
+    cutoff_date = today - timedelta(days=days)
     selected = []
     for key, item in items.items():
-        first_seen = item.get("first_seen", "")
-        if first_seen >= cutoff:
+        pub_str = item.get("published_date")
+        if not pub_str:
+            # Pas de date parsée → on ignore (sécurité)
+            continue
+        try:
+            pub_date = datetime.strptime(pub_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if pub_date >= cutoff_date:
             selected.append(item)
-    # Tri : par date publiée décroissante, sinon par first_seen
-    def sort_key(it):
-        return it.get("published_date") or it.get("first_seen") or ""
-    selected.sort(key=sort_key, reverse=True)
+    # Tri : plus récent en premier
+    selected.sort(key=lambda it: it.get("published_date", ""), reverse=True)
     return selected
 
 

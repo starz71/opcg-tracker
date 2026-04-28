@@ -34,6 +34,28 @@ KEEP_CATEGORIES_FR = {"PRODUITS", "CARTES", "ANNONCES"}
 KEEP_CATEGORIES_EN = {"PRODUCTS", "CARDS", "NEWS"}
 KEEP_CATEGORIES_JP = {"商品", "カード", "ニュース"}  # produits, cartes, news
 
+# Patterns d'URL à EXCLURE (accessoires anodins : sleeves, playmats, etc.)
+# On laisse passer boosters, decks, premium boosters, anniversary, tin packs, double packs
+EXCLUDE_URL_PATTERNS = [
+    "/sleeve",          # Pochettes (sleeve001, sleeve030...)
+    # /playmat conservé : peut contenir des cartes promo
+    "/cardcase",        # Boîtes à cartes
+    "/binder",          # Classeurs
+    "/storage",         # Boîtes de rangement
+    "/df0",             # Démon Fruits / Card Fruits du Démon (collections)
+    # /playmat_storagebox conservé (contient des cartes promo)
+    "/soundloader",     # Goodies divers
+    "/goods_set",       # Sets de goodies
+    "/goods_storage",
+    "/cardcollection_filmred",
+    "/cardcollection_uta",
+    "/cardcollection_liveaction",
+    "/cardcollection25th",
+    "/cardcollection_6assort",
+    "/ib0",             # Illustration Boxes (sauf si demande contraire)
+    "/ib-ex",
+]
+
 # Mots-clés à EXCLURE même dans les bonnes catégories (banlist surtout)
 EXCLUDE_TITLE_KEYWORDS = [
     # FR
@@ -173,6 +195,17 @@ def parse_date_french(text: str) -> Optional[str]:
     return None
 
 
+def url_excluded(url: str) -> bool:
+    """Filtre les annonces d'accessoires anodins par pattern d'URL."""
+    if not url:
+        return False
+    low = url.lower()
+    for pat in EXCLUDE_URL_PATTERNS:
+        if pat in low:
+            return True
+    return False
+
+
 def title_excluded(title: str) -> bool:
     if not title:
         return True
@@ -198,6 +231,8 @@ def scrape_fr_topics(source: dict) -> list[dict]:
     for link in soup.select("a[href]"):
         href = link.get("href", "")
         if not re.search(r"/(topics|products|cardlist)/[^/]+", href):
+            continue
+        if url_excluded(href):
             continue
         full_url = urljoin(source["base"], href)
         if full_url in seen_urls:
@@ -286,6 +321,8 @@ def scrape_en_topics(source: dict) -> list[dict]:
         # Filtre URL : doit pointer vers une fiche news ou produit
         if not re.search(r"/(news|products|topics)/[^/]+", href):
             continue
+        if url_excluded(href):
+            continue
         # Évite les doublons d'URL
         full_url = urljoin(source["base"], href)
         if full_url in seen_urls:
@@ -368,6 +405,8 @@ def scrape_jp_topics(source: dict) -> list[dict]:
     for link in soup.select("a[href]"):
         href = link.get("href", "")
         if not re.search(r"/(topics|products|cardlist)/[^/]+", href):
+            continue
+        if url_excluded(href):
             continue
         full_url_check = urljoin(source["base"], href)
         if full_url_check in seen_urls:

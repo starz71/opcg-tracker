@@ -49,28 +49,61 @@ MAX_RETRIES = 2
 PRICE_DROP_THRESHOLD = 0.97  # notifie si le prix tombe sous 97% de l'ancien
 DEFAULT_COOLDOWN_HOURS = 24  # ne pas re-notifier le même produit dans X heures
 
-# Mots-clés qui indiquent une RUPTURE DE STOCK (le produit est ignoré).
+# ════ MARQUEURS DE STATUT — détection sur cartes produit en page catégorie ════
+
+# Mots-clés qui indiquent une RUPTURE DE STOCK
 OUT_OF_STOCK_MARKERS = [
-    "rupture", "épuisé", "epuise", "indisponible", "non disponible",
+    "rupture", "épuisé", "epuisé", "epuise", "épuise",
+    "indisponible", "non disponible", "non-disponible",
     "out of stock", "sold out", "soldout", "sold-out",
     "plus en stock", "plus disponible", "non dispo",
-    "vendu", "stock épuisé",
+    "vendu", "stock épuisé", "stock epuise",
+    "produit épuisé", "produit epuise",
+    "victim of its success", "more available",
 ]
+# Classes CSS / data-attributes qui indiquent une rupture
+# Plus exhaustif : on couvre Shopify, PrestaShop, WooCommerce, Wix
 OUT_OF_STOCK_CSS_HINTS = [
-    "out-of-stock", "outofstock", "sold-out", "soldout",
+    "out-of-stock", "outofstock", "out_of_stock",
+    "sold-out", "soldout", "sold_out",
     "unavailable", "no-stock", "nostock",
+    "product--sold-out", "product-sold-out",
+    "is-sold-out", "is-out-of-stock",
+    "data-sold-out", "data-out-of-stock",
+    "btn-sold-out", "button--sold-out",
+    "stock-out", "no-stock-availability",
 ]
-# Marqueurs de précommande (le produit est suivi mais marqué "preorder")
+
+# Mots-clés de PRÉCOMMANDE (le produit est suivi mais marqué "preorder")
 PREORDER_MARKERS = [
+    # Français
     "précommande", "precommande", "pré-commande", "pre-commande",
+    "précommandez", "precommandez", "précommander", "precommander",
+    # Anglais
     "preorder", "pre-order", "pre order",
+    "pre-orders open", "preorders open",
+    # Annonces de sortie / disponibilité future
     "à paraître", "a paraitre", "à venir", "a venir",
-    "sortie le", "sortie prévue", "disponible le", "dispo le",
-    "available on", "release date", "release on",
-    "réservation", "reservation",
+    "sortie le", "sortie prévue", "sortie prevue",
+    "disponible le", "disponible sur", "disponible à partir",
+    "dispo le", "dispo à partir",
+    "available on", "available from",
+    "release date", "release on", "releases on",
+    "shipping", "ship date", "expédition à partir", "expedition a partir",
+    # Réservation
+    "réservation", "reservation", "réserver maintenant", "reserver maintenant",
+    # Indicateurs de date future
+    "livraison entre", "delivery between",
+    "in stock from", "en stock à partir", "en stock a partir",
 ]
+# Classes CSS / data-attributes de précommande
 PREORDER_CSS_HINTS = [
-    "preorder", "pre-order", "precommande", "pré-commande",
+    "preorder", "pre-order", "pre_order",
+    "precommande", "pré-commande",
+    "btn-preorder", "button--preorder",
+    "data-preorder", "is-preorder",
+    "product-preorder", "preorder-button",
+    "countdown",  # Tofopolis & co. utilisent un compte à rebours pour les précos
 ]
 
 # Sélecteurs CSS par plateforme — utilisés en fallback automatique quand un
@@ -210,56 +243,78 @@ def text_of(el):
     return el.get_text(" ", strip=True) if el else ""
 
 def is_out_of_stock(card, availability_text=""):
-    """Détecte si un produit est en rupture de stock à partir de sa carte HTML
-    et du texte d'availability extrait. PRÉCOMMANDES = en stock (renvoie False).
-    Renvoie True si rupture détectée."""
-    # 1. Vérifier le texte d'availability extrait
+    """Détecte si un produit est en rupture de stock.
+    PRÉCOMMANDES = en stock (renvoie False) — la détection précommande est faite
+    séparément dans is_preorder() et a la priorité dans scrape_category()."""
+    # 1. Texte d'availability extrait
     if availability_text:
         low = availability_text.lower()
         for marker in OUT_OF_STOCK_MARKERS:
             if marker in low:
                 return True
 
-    # 2. Vérifier les classes CSS de la carte (et de ses enfants directs)
-    card_html = str(card.attrs) + " " + " ".join(
-        " ".join(c.get("class") or []) for c in card.find_all(class_=True, recursive=False)
-    )
-    card_html_low = card_html.lower()
+    # 2. Classes CSS de la carte et de ses descendants (pas que enfants directs)
+    # Beaucoup de sites mettent le marqueur OOS plus profond dans le DOM
+    card_html_low = str(card).lower()
     for hint in OUT_OF_STOCK_CSS_HINTS:
         if hint in card_html_low:
             return True
 
-    # 3. Vérifier le texte global de la carte (dernier recours, prudent)
+    # 3. Texte global de la carte (dernier recours, prudent)
     card_text = card.get_text(" ", strip=True).lower()
     if "sold out" in card_text or "soldout" in card_text:
         return True
     if "rupture de stock" in card_text or "stock épuisé" in card_text:
         return True
+    if "épuisé" in card_text or "epuise" in card_text:
+        # Vérifier que c'est bien sur un bouton ou une indication de stock,
+        # pas dans un nom de produit qui contient "épuisé" (peu probable mais
+        # bonne ceinture)
+        return True
 
     return False
 
 def is_preorder(card, availability_text="", title=""):
-    """Détecte si un produit est en précommande (et non en stock immédiat)."""
+    """Détecte si un produit est en précommande.
+    Vérifie cartes (texte + CSS), titre, et indicateurs de date future.
+    Renvoie True si précommande détectée."""
     # 1. Texte d'availability
     if availability_text:
         low = availability_text.lower()
         for marker in PREORDER_MARKERS:
             if marker in low:
                 return True
-    # 2. Classes CSS
-    card_html = str(card.attrs) + " " + " ".join(
-        " ".join(c.get("class") or []) for c in card.find_all(class_=True, recursive=False)
-    )
-    card_html_low = card_html.lower()
+
+    # 2. Classes CSS / data-attributes (toute la carte, descendants inclus)
+    card_html_low = str(card).lower()
     for hint in PREORDER_CSS_HINTS:
         if hint in card_html_low:
             return True
+
     # 3. Titre du produit
     if title:
         title_low = title.lower()
         for marker in ["précommande", "precommande", "preorder", "pre-order"]:
             if marker in title_low:
                 return True
+
+    # 4. Texte global de la carte (dernier filet de sécurité)
+    # On évite les faux positifs en exigeant des phrases assez spécifiques
+    card_text = card.get_text(" ", strip=True).lower()
+    strong_preorder_phrases = [
+        "ce produit est en précommande", "ce produit est en precommande",
+        "précommandez maintenant", "precommandez maintenant",
+        "this product is a pre-order", "this is a pre-order",
+        "available for pre-order", "preorder now",
+        "disponible sur :", "disponible sur:", "disponible le :", "disponible le:",
+        "sortie le :", "sortie le:", "sortie prévue :", "sortie prevue :",
+        "release date:", "release date :", "release on:", "release on :",
+        "available on:", "available on :", "available from:", "available from :",
+    ]
+    for phrase in strong_preorder_phrases:
+        if phrase in card_text:
+            return True
+
     return False
 
 # ───── Détection du type de produit (Display, Booster, Starter, etc.) ─────
@@ -382,15 +437,22 @@ def scrape_category(session, site):
         avail = text_of(card.select_one(sel.get("availability"))) if sel.get("availability") else ""
         if not (title and href):
             continue
-        # Calcul du statut : out / preorder / in
-        oos = is_out_of_stock(card, avail)
-        if oos:
-            status = "out"
-            skipped_oos += 1
-        elif is_preorder(card, avail, title):
+        # Calcul du statut avec priorité : preorder > out > in
+        # Un produit en précommande peut avoir un bouton "Épuisé" sur la liste
+        # (parce qu'il n'est pas encore dispo immédiatement), mais le badge
+        # "Précommande" ou "Disponible le X" doit primer.
+        is_pre = is_preorder(card, avail, title)
+        is_oos = is_out_of_stock(card, avail)
+        if is_pre:
             status = "preorder"
+            oos = False  # is_oos legacy : précommande ≠ rupture
+        elif is_oos:
+            status = "out"
+            oos = True
+            skipped_oos += 1
         else:
             status = "in"
+            oos = False
         ptype = detect_product_type(title)
         results.append({
             "title": title,
@@ -399,7 +461,7 @@ def scrape_category(session, site):
             "site": site["name"],
             "availability": avail,
             "is_oos": oos,            # legacy : encore utilisé par les transitions
-            "status": status,         # nouveau : in / preorder / out
+            "status": status,         # in / preorder / out
             "product_type": ptype,    # display / booster / starter / box / case / other
         })
     if skipped_oos:

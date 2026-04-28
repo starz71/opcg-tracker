@@ -2,9 +2,10 @@ name: OPCG Tracker
 
 on:
   schedule:
-    # Toutes les 30 minutes (UTC). Modifiable, mais évitez < 15 min pour
-    # rester poli avec les sites scrapés.
-    - cron: "*/30 * * * *"
+    # xx:05 et xx:35 (UTC) — décalé de l'heure ronde xx:00 où les serveurs
+    # GitHub Actions sont saturés et skippent les crons gratuits.
+    # Syntaxe explicite "5,35" plutôt que "*/30" : empiriquement mieux honorée.
+    - cron: "5,35 * * * *"
   workflow_dispatch:   # bouton "Run workflow" dans l'onglet Actions
 
 permissions:

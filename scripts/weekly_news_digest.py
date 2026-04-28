@@ -27,11 +27,14 @@ from news_collector import (
 DIGEST_WINDOW_DAYS = 10  # Annonces des 10 derniers jours (7 + 3 jours de marge)
 
 # ─────────────────── Telegram ───────────────────
-def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None) -> dict:
+def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None,
+                    thread_id: int = None) -> dict:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": str(chat_id), "text": text}
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    if thread_id:
+        payload["message_thread_id"] = int(thread_id)
     try:
         r = requests.post(url, json=payload, timeout=15)
         if r.status_code != 200:
@@ -43,17 +46,18 @@ def tg_send_message(token: str, chat_id: str, text: str, parse_mode: str = None)
 
 
 def tg_send_photo(token: str, chat_id: str, photo_url: str, caption: str = None,
-                  parse_mode: str = None) -> dict:
+                  parse_mode: str = None, thread_id: int = None) -> dict:
     """Envoie une photo via URL distante (Telegram télécharge l'image)."""
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
     payload = {"chat_id": str(chat_id), "photo": photo_url}
     if caption:
-        # Telegram limite la caption à 1024 caractères
         if len(caption) > 1024:
             caption = caption[:1020] + "…"
         payload["caption"] = caption
         if parse_mode:
             payload["parse_mode"] = parse_mode
+    if thread_id:
+        payload["message_thread_id"] = int(thread_id)
     try:
         r = requests.post(url, json=payload, timeout=20)
         if r.status_code != 200:
@@ -118,25 +122,137 @@ def filter_recent(items: dict, days: int = DIGEST_WINDOW_DAYS) -> list[dict]:
     return selected
 
 
-def fetch_excerpt(url: str, lang: str, max_chars: int = 280) -> str:
-    """Récupère un résumé de l'article. Cherche meta description, sinon début du contenu."""
+# Phrases qu\'on rejette comme étant la description générique du site (pas du produit)
+GENERIC_DESC_MARKERS = [
+    "site officiel du jeu de cartes one piece",
+    "the official one piece card game website",
+    "official site for the popular trading card game",
+    "site officiel",
+    "embarquez pour une nouvelle ère",
+    "set sail for the new era",
+    "find out about the latest cards",
+    "retrouvez toutes les informations du jeu",
+]
+
+def _is_generic_text(text: str) -> bool:
+    """Détecte si un texte est une description générique du site, pas du produit."""
+    if not text:
+        return True
+    low = text.lower()
+    return any(marker in low for marker in GENERIC_DESC_MARKERS)
+
+
+def _is_generic_image(url: str) -> bool:
+    """Détecte si une URL d\'image est un placeholder générique du site."""
+    if not url:
+        return True
+    low = url.lower()
+    bad_patterns = [
+        "img_thumbnail",      # placeholder Bandai
+        "logo_op",            # logo générique
+        "no-image",
+        "noimage",
+        "placeholder",
+        "default",
+        "common/",            # icônes communes
+        "/footer_",           # icônes footer
+        "ico_",               # icônes
+    ]
+    return any(p in low for p in bad_patterns)
+
+
+def fetch_article_data(url: str, lang: str, max_chars: int = 280) -> tuple[str, str]:
+    """Récupère (description, image_url) depuis une fiche article/produit.
+    Renvoie ("", "") si rien d\'utilisable."""
     html = fetch_html(url, timeout=10)
     if not html:
-        return ""
+        return "", ""
     soup = BeautifulSoup(html, "lxml")
-    # Priorité 1 : meta description
-    for meta_attr in [{"name": "description"}, {"property": "og:description"}]:
-        meta = soup.find("meta", attrs=meta_attr)
+
+    # ── DESCRIPTION ──
+    description = ""
+
+    # Priorité 1 : og:description (souvent plus spécifique que meta description)
+    og = soup.find("meta", attrs={"property": "og:description"})
+    if og and og.get("content"):
+        content = og["content"].strip()
+        if content and not _is_generic_text(content) and len(content) > 30:
+            description = content[:max_chars]
+
+    # Priorité 2 : meta description (si pas générique)
+    if not description:
+        meta = soup.find("meta", attrs={"name": "description"})
         if meta and meta.get("content"):
             content = meta["content"].strip()
-            if len(content) > 30:
-                return content[:max_chars]
-    # Priorité 2 : premier <p> significatif
-    for p in soup.find_all("p"):
-        text = p.get_text(" ", strip=True)
-        if text and len(text) > 50 and "©" not in text and "cookie" not in text.lower():
-            return text[:max_chars]
-    return ""
+            if content and not _is_generic_text(content) and len(content) > 30:
+                description = content[:max_chars]
+
+    # Priorité 3 : chercher dans le contenu principal (article body, main, etc.)
+    if not description:
+        # Cherche dans des conteneurs typiques
+        candidates = []
+        for selector in ["article", "main", "[role=\"main\"]", "#main", ".content",
+                          ".article-body", ".product-info", ".product-detail",
+                          ".news-content", ".topics-content"]:
+            try:
+                el = soup.select_one(selector)
+                if el:
+                    candidates.append(el)
+            except Exception:
+                continue
+        if not candidates:
+            candidates = [soup]
+
+        for container in candidates:
+            for p in container.find_all(["p", "h2", "h3"]):
+                text = p.get_text(" ", strip=True)
+                if not text or len(text) < 50:
+                    continue
+                if "©" in text or "cookie" in text.lower():
+                    continue
+                if _is_generic_text(text):
+                    continue
+                description = text[:max_chars]
+                break
+            if description:
+                break
+
+    # ── IMAGE ──
+    image_url = ""
+
+    # Priorité 1 : og:image (l\'image que les réseaux sociaux affichent)
+    og_img = soup.find("meta", attrs={"property": "og:image"})
+    if og_img and og_img.get("content"):
+        candidate = og_img["content"].strip()
+        if candidate and not _is_generic_image(candidate):
+            image_url = urljoin(url, candidate)
+
+    # Priorité 2 : grosse image dans le contenu principal
+    if not image_url:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if not src:
+                continue
+            if _is_generic_image(src):
+                continue
+            # Filtre par taille minimum si dispo
+            try:
+                w = int(img.get("width", "0") or "0")
+                h = int(img.get("height", "0") or "0")
+                if w and h and (w < 200 or h < 200):
+                    continue
+            except ValueError:
+                pass
+            image_url = urljoin(url, src)
+            break
+
+    return description, image_url
+
+
+# Compatibilité descendante avec l\'ancien nom
+def fetch_excerpt(url: str, lang: str, max_chars: int = 280) -> str:
+    description, _ = fetch_article_data(url, lang, max_chars)
+    return description
 
 
 def format_digest_header(items: list[dict]) -> str:
@@ -177,10 +293,15 @@ def format_announcement(item: dict) -> tuple[str, Optional[str]]:
     is_jp = lang == "JP"
     # Traduit si JP
     title = translate_to_fr(raw_title) if is_jp else raw_title
-    # Récupère un résumé depuis l'article
-    summary = fetch_excerpt(item.get("url", ""), lang)
+    # Récupère résumé + meilleure image depuis la fiche détaillée
+    primary_url = item.get("url", "")
+    summary, better_image = fetch_article_data(primary_url, lang)
     if is_jp and summary:
         summary = translate_to_fr(summary)
+    # On override l\'image initiale si la fiche détaillée a une meilleure image
+    if better_image:
+        item = dict(item)
+        item["image_url"] = better_image
 
     # Émoji de catégorie
     cat = item.get("category", "")
@@ -245,11 +366,14 @@ def escape_md(text: str) -> str:
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    topic_news = os.environ.get("TELEGRAM_TOPIC_NEWS", "").strip()
     if not token or not chat_id:
         log("❌ TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manquant")
         sys.exit(1)
-    # Debug : montrer la longueur et le format du chat_id (pas la valeur entière)
-    log(f"🔑 Token ok ({len(token)} chars) · Chat ID format: '{chat_id[:4]}...{chat_id[-4:]}' (len={len(chat_id)})")
+    # Convertir le topic en int si présent et numérique, sinon None
+    thread_id = int(topic_news) if topic_news.lstrip("-").isdigit() else None
+    log(f"🔑 Token ok ({len(token)} chars) · Chat: '{chat_id[:4]}...{chat_id[-4:]}' (len={len(chat_id)})"
+        f" · Topic News: {thread_id if thread_id else '(canal général)'}")
 
     if not HISTORY_FILE.exists():
         log("⚠️  news_history.json absent — rien à envoyer")
@@ -266,11 +390,11 @@ def main():
     # 1. Message header
     header = format_digest_header(items)
     log("📤 Envoi du header…", indent=1)
-    res = tg_send_message(token, chat_id, header, parse_mode="Markdown")
+    res = tg_send_message(token, chat_id, header, parse_mode="Markdown", thread_id=thread_id)
     if not res.get("ok"):
         log(f"❌ Header échoué : {res}", indent=2)
         # Retente sans Markdown
-        res = tg_send_message(token, chat_id, re.sub(r"[*_`]", "", header))
+        res = tg_send_message(token, chat_id, re.sub(r"[*_`]", "", header), thread_id=thread_id)
         if not res.get("ok"):
             log(f"❌ Header échoué même en plain : {res}", indent=2)
             sys.exit(1)
@@ -283,17 +407,17 @@ def main():
         caption, img_url = format_announcement(item)
         if img_url:
             res = tg_send_photo(token, chat_id, img_url, caption=caption,
-                                parse_mode="Markdown")
+                                parse_mode="Markdown", thread_id=thread_id)
             if not res.get("ok"):
                 log(f"⚠️  Photo échouée ({res.get('description', '?')[:80]}) — fallback texte", indent=2)
-                res = tg_send_message(token, chat_id, caption, parse_mode="Markdown")
+                res = tg_send_message(token, chat_id, caption, parse_mode="Markdown", thread_id=thread_id)
                 if not res.get("ok"):
                     # dernier recours plain text
-                    res = tg_send_message(token, chat_id, re.sub(r"[*_`\[\]]", "", caption))
+                    res = tg_send_message(token, chat_id, re.sub(r"[*_`\[\]]", "", caption), thread_id=thread_id)
         else:
-            res = tg_send_message(token, chat_id, caption, parse_mode="Markdown")
+            res = tg_send_message(token, chat_id, caption, parse_mode="Markdown", thread_id=thread_id)
             if not res.get("ok"):
-                res = tg_send_message(token, chat_id, re.sub(r"[*_`\[\]]", "", caption))
+                res = tg_send_message(token, chat_id, re.sub(r"[*_`\[\]]", "", caption), thread_id=thread_id)
         if res.get("ok"):
             sent += 1
         # Anti-rate-limit Telegram (30 messages/sec en groupe, on prend large)

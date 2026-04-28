@@ -40,9 +40,11 @@ jobs:
 
       - name: Run tracker
         env:
-          NTFY_TOPIC:         ${{ secrets.NTFY_TOPIC }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          NTFY_TOPIC:               ${{ secrets.NTFY_TOPIC }}
+          TELEGRAM_BOT_TOKEN:       ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:         ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_PRODUCTS:  ${{ secrets.TELEGRAM_TOPIC_PRODUCTS }}
+          TELEGRAM_TOPIC_RESTOCKS:  ${{ secrets.TELEGRAM_TOPIC_RESTOCKS }}
         run: python tracker.py
 
       - name: Persist state and history

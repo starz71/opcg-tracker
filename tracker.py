@@ -831,33 +831,34 @@ def _telegram_escape_md(text):
         text = text.replace(char, '\\' + char)
     return text
 
-def notify_telegram(token, chat_id, text):
+def notify_telegram(token, chat_id, text, thread_id=None):
     """Envoie un message Telegram avec gestion d'erreurs visible dans les logs.
     Tente d'abord en Markdown ; si Telegram refuse à cause d'une syntaxe
-    Markdown invalide, retente en mode plain text (sans formatage)."""
+    Markdown invalide, retente en mode plain text (sans formatage).
+    Si thread_id est fourni, le message est envoyé dans ce topic du supergroupe."""
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    def _build_payload(content, parse_mode=None):
+        p = {"chat_id": str(chat_id), "text": content}
+        if parse_mode:
+            p["parse_mode"] = parse_mode
+        if thread_id:
+            p["message_thread_id"] = int(thread_id)
+        return p
+
     # Tentative 1 : Markdown (avec échappement des caractères critiques)
     safe_text = _telegram_escape_md(text)
     try:
-        r = requests.post(url, json={
-            "chat_id": chat_id,
-            "text": safe_text,
-            "parse_mode": "Markdown",
-        }, timeout=10)
+        r = requests.post(url, json=_build_payload(safe_text, "Markdown"), timeout=10)
         if r.status_code == 200:
             return  # OK
-        # Si erreur Markdown (400 Bad Request), on retente en plain
         log(f"⚠️  telegram Markdown failed ({r.status_code}): {r.text[:200]}", indent=2)
     except Exception as ex:
         log(f"⚠️  telegram exception (Markdown): {ex}", indent=2)
 
     # Tentative 2 : plain text sans parse_mode
     try:
-        r = requests.post(url, json={
-            "chat_id": chat_id,
-            "text": text,  # texte original sans escape
-            # pas de parse_mode → Telegram traite comme du texte brut
-        }, timeout=10)
+        r = requests.post(url, json=_build_payload(text), timeout=10)
         if r.status_code == 200:
             log(f"✓ telegram envoyé en plain text", indent=2)
             return
@@ -934,8 +935,15 @@ def send_notifications(config, alert, listing, kind, previous=None, cm_data=None
     tg_token = env_or(n, "telegram_bot_token")
     tg_chat = env_or(n, "telegram_chat_id")
     if tg_token and tg_chat:
+        # Routage par topic selon le type de notification
+        # - back_in_stock → Topic "Retour en stock" (priorité critique, séparé)
+        # - new / price_drop → Topic "Notifs produits"
+        if kind == "back_in_stock":
+            tg_thread = env_or(n, "telegram_topic_restocks")
+        else:
+            tg_thread = env_or(n, "telegram_topic_products")
         md = f"*{title}*\n\n{body}\n\n[👉 Ouvrir]({listing['url']})"
-        notify_telegram(tg_token, tg_chat, md)
+        notify_telegram(tg_token, tg_chat, md, thread_id=tg_thread)
 
     email_cfg = n.get("email") or {}
     if email_cfg.get("from") and email_cfg.get("password") and email_cfg.get("to"):

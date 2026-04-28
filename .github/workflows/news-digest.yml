@@ -68,8 +68,9 @@ jobs:
       - name: Send weekly digest
         if: steps.act.outputs.action == 'digest' || steps.act.outputs.action == 'both'
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_NEWS:  ${{ secrets.TELEGRAM_TOPIC_NEWS }}
         run: python scripts/weekly_news_digest.py
 
       - name: Commit news_history.json

@@ -434,6 +434,154 @@ def detect_product_type(title):
     return "other"
 
 
+# Patterns pour détecter le SET OPCG dans un titre (OP-15, EB-03, PRB-02, etc.)
+# Ordre important : les patterns plus spécifiques d'abord.
+SET_PATTERNS = [
+    # OP-XX, OP15, OP 15
+    re.compile(r"\b(OP)\s*-?\s*(\d{1,2})\b", re.I),
+    # EB-XX (Extra Booster)
+    re.compile(r"\b(EB)\s*-?\s*(\d{1,2})\b", re.I),
+    # PRB-XX (Premium Booster)
+    re.compile(r"\b(PRB)\s*-?\s*(\d{1,2})\b", re.I),
+    # ST-XX (Starter Deck)
+    re.compile(r"\b(ST)\s*-?\s*(\d{1,2})\b", re.I),
+    # DF-XX (Devil Fruit Collection)
+    re.compile(r"\b(DF)\s*-?\s*(\d{1,2})\b", re.I),
+    # IB-XX (Illustration Box)
+    re.compile(r"\b(IB)\s*-?\s*(\d{1,2})\b", re.I),
+    # AC-XX (Admirable Collection)
+    re.compile(r"\b(AC)\s*-?\s*(\d{1,2})\b", re.I),
+]
+
+# Sets connus avec leur "nom commercial" pour un affichage agréable.
+# Si un set OP-15 est détecté, on prend le nom le plus complet du titre
+# (qui contient souvent le nom commercial type "Aventure sur l'île de Dieu").
+SET_DISPLAY_NAMES = {
+    # OP-XX
+    "OP-09": "Les Nouveaux Empereurs / Emperors in the New World",
+    "OP-10": "Sang Royal / Royal Blood",
+    "OP-11": "Des Poings Vifs / Wings of the Captain",
+    "OP-12": "L'Héritage du Maître / Legacy of the Master",
+    "OP-13": "Successeurs / Carrying on his Will",
+    "OP-14": "Les Sept de la Mer d'Azur / The Azure Sea's Seven",
+    "OP-15": "Aventures sur l'Île de Dieu / Adventure on Kami's Island",
+    "OP-16": "L'Heure de la Bataille / Paramount War",
+    "OP-17": "The World's Strongest Warriors",
+    # EB-XX
+    "EB-01": "Memorial Collection",
+    "EB-02": "Anime 25th Collection",
+    "EB-03": "Heroines Edition",
+    "EB-04": "Adventures on Kami's Island",
+    "EB-05": "Future Memories",
+    # PRB-XX
+    "PRB-01": "The Best",
+    "PRB-02": "The Best II",
+    # DF-XX
+    "DF-01": "Devil Fruit Collection 1",
+    "DF-02": "Devil Fruit Collection 2",
+    "DF-03": "Devil Fruit Collection 3",
+}
+
+
+def detect_set(title):
+    """Renvoie le code de set (ex: 'OP-15', 'EB-03', 'PRB-02') s'il est
+    détecté dans le titre, sinon None."""
+    if not title:
+        return None
+    for pattern in SET_PATTERNS:
+        m = pattern.search(title)
+        if m:
+            prefix = m.group(1).upper()
+            number = m.group(2).zfill(2)  # 5 → 05
+            return f"{prefix}-{number}"
+    return None
+
+
+def detect_language(title):
+    """Tente de détecter la langue du produit depuis le titre.
+    Renvoie 'FR', 'EN', 'JP' ou None si non détecté."""
+    if not title:
+        return None
+    t = title.lower()
+    # Marqueurs explicites
+    if any(m in t for m in ["(fr)", " fr ", "français", "francais", "french version", "version française",
+                              "version francaise", "vf"]):
+        return "FR"
+    if any(m in t for m in ["(en)", " en ", "english", "anglais", "english version", "version anglaise"]):
+        return "EN"
+    if any(m in t for m in ["(jp)", "(jap)", "japonaise", "japanese", "japon",
+                              "version japonaise", "japanese version"]):
+        return "JP"
+    if any(m in t for m in ["(ko)", "korean", "coréen", "coreen"]):
+        return "EN"  # KO = produit Bandai pour l'Asie, généralement vendu comme EN sur les sites FR
+    return None
+
+
+def group_listings_for_digest(listings):
+    """Regroupe une liste de listings par (set, type_produit) pour un message
+    digest. Renvoie une structure ordonnée pour rendu Markdown :
+
+        {
+          "OP-15": {
+            "display_name": "OP-15 Aventures sur l'île de Dieu",
+            "groups": {
+              "display": [listing1, listing2, ...],
+              "booster": [...],
+              "double_pack": [...]
+            }
+          },
+          ...
+          "_other": {...}  # listings sans set détecté
+        }
+    """
+    sets = {}
+    for listing in listings:
+        title = listing.get("title", "")
+        set_code = detect_set(title)
+        ptype = listing.get("product_type") or detect_product_type(title)
+
+        # Détection "double pack" via le titre (n'est pas dans product_type)
+        tlower = title.lower()
+        if any(kw in tlower for kw in ["double pack", "double-pack", "doublepack",
+                                          "pack de 2 booster", "pack 2 booster",
+                                          "lot de 2 booster", "double booster"]):
+            ptype = "double_pack"
+        # "Triple pack" (rarement mais existe)
+        elif any(kw in tlower for kw in ["triple pack", "triple-pack", "pack de 3 booster"]):
+            ptype = "triple_pack"
+
+        # Set bucket
+        if set_code:
+            bucket = sets.setdefault(set_code, {"display_name": set_code,
+                                                 "groups": {}})
+            # Nom complet du set : on essaie de construire un nom long
+            display_extra = SET_DISPLAY_NAMES.get(set_code)
+            if display_extra:
+                bucket["display_name"] = f"{set_code} — {display_extra}"
+        else:
+            bucket = sets.setdefault("_other", {"display_name": "Autres produits",
+                                                  "groups": {}})
+
+        bucket["groups"].setdefault(ptype, []).append(listing)
+
+    return sets
+
+
+# Ordre d'affichage des types de produits dans le digest groupé
+PRODUCT_TYPE_ORDER = ["display", "case", "booster", "double_pack", "triple_pack",
+                       "starter", "box", "other"]
+PRODUCT_TYPE_LABELS = {
+    "display": "📦 Display",
+    "case": "📦 Case (carton de displays)",
+    "booster": "🎴 Booster",
+    "double_pack": "🎴 Double Pack",
+    "triple_pack": "🎴 Triple Pack",
+    "starter": "🃏 Starter Deck",
+    "box": "🎁 Coffret",
+    "other": "📌 Autre",
+}
+
+
 # Mots-clés d'accessoires à EXCLURE complètement de la surveillance.
 # Ces produits ne sont pas l'intérêt principal d'un acheteur de displays/boosters.
 ACCESSORY_EXCLUDE_KEYWORDS = [
@@ -1337,11 +1485,15 @@ def _telegram_escape_md(text):
         text = text.replace(char, '\\' + char)
     return text
 
-def notify_telegram(token, chat_id, text, thread_id=None):
+def notify_telegram(token, chat_id, text, thread_id=None, disable_notification=False):
     """Envoie un message Telegram avec gestion d'erreurs visible dans les logs.
     Tente d'abord en Markdown ; si Telegram refuse à cause d'une syntaxe
     Markdown invalide, retente en mode plain text (sans formatage).
-    Si thread_id est fourni, le message est envoyé dans ce topic du supergroupe."""
+    Si thread_id est fourni, le message est envoyé dans ce topic du supergroupe.
+    Si disable_notification=True, le message est envoyé silencieusement (pas de son).
+
+    Renvoie le message_id du message envoyé (int) ou None si échec.
+    """
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
     def _build_payload(content, parse_mode=None):
@@ -1350,6 +1502,8 @@ def notify_telegram(token, chat_id, text, thread_id=None):
             p["parse_mode"] = parse_mode
         if thread_id:
             p["message_thread_id"] = int(thread_id)
+        if disable_notification:
+            p["disable_notification"] = True
         return p
 
     # Tentative 1 : Markdown (avec échappement des caractères critiques)
@@ -1357,7 +1511,10 @@ def notify_telegram(token, chat_id, text, thread_id=None):
     try:
         r = requests.post(url, json=_build_payload(safe_text, "Markdown"), timeout=10)
         if r.status_code == 200:
-            return  # OK
+            try:
+                return r.json().get("result", {}).get("message_id")
+            except Exception:
+                return None
         log(f"⚠️  telegram Markdown failed ({r.status_code}): {r.text[:200]}", indent=2)
     except Exception as ex:
         log(f"⚠️  telegram exception (Markdown): {ex}", indent=2)
@@ -1367,10 +1524,74 @@ def notify_telegram(token, chat_id, text, thread_id=None):
         r = requests.post(url, json=_build_payload(text), timeout=10)
         if r.status_code == 200:
             log(f"✓ telegram envoyé en plain text", indent=2)
-            return
+            try:
+                return r.json().get("result", {}).get("message_id")
+            except Exception:
+                return None
         log(f"❌ telegram plain failed ({r.status_code}): {r.text[:200]}", indent=2)
     except Exception as ex:
         log(f"❌ telegram exception (plain): {ex}", indent=2)
+    return None
+
+
+def edit_telegram_message(token, chat_id, message_id, text):
+    """Édite un message Telegram existant. L'édition est SILENCIEUSE par
+    nature (pas de notification déclenchée). Renvoie True si succès.
+
+    Si Telegram refuse (message trop ancien, supprimé, etc.), renvoie False.
+    L'appelant peut alors décider de ré-envoyer un nouveau message.
+    """
+    url = f"https://api.telegram.org/bot{token}/editMessageText"
+
+    def _build_payload(content, parse_mode=None):
+        p = {
+            "chat_id": str(chat_id),
+            "message_id": int(message_id),
+            "text": content,
+        }
+        if parse_mode:
+            p["parse_mode"] = parse_mode
+        return p
+
+    # Tentative 1 : Markdown
+    safe_text = _telegram_escape_md(text)
+    try:
+        r = requests.post(url, json=_build_payload(safe_text, "Markdown"), timeout=10)
+        if r.status_code == 200:
+            return True
+        # Cas particulier : "message is not modified" = pas une vraie erreur
+        if "not modified" in r.text.lower():
+            return True
+        log(f"⚠️  telegram edit Markdown failed ({r.status_code}): {r.text[:200]}", indent=2)
+    except Exception as ex:
+        log(f"⚠️  telegram edit exception (Markdown): {ex}", indent=2)
+
+    # Tentative 2 : plain text
+    try:
+        r = requests.post(url, json=_build_payload(text), timeout=10)
+        if r.status_code == 200:
+            return True
+        if "not modified" in r.text.lower():
+            return True
+        log(f"❌ telegram edit plain failed ({r.status_code}): {r.text[:200]}", indent=2)
+    except Exception as ex:
+        log(f"❌ telegram edit exception (plain): {ex}", indent=2)
+    return False
+
+
+def delete_telegram_message(token, chat_id, message_id):
+    """Supprime un message Telegram. Renvoie True si succès, False sinon.
+    Échec courant : message trop ancien (>48h pour les bots) ou déjà supprimé."""
+    url = f"https://api.telegram.org/bot{token}/deleteMessage"
+    try:
+        r = requests.post(url, json={
+            "chat_id": str(chat_id),
+            "message_id": int(message_id),
+        }, timeout=10)
+        return r.status_code == 200
+    except Exception:
+        return False
+
 
 def notify_email(cfg, subject, body):
     try:
@@ -1383,6 +1604,206 @@ def notify_email(cfg, subject, body):
             s.send_message(msg)
     except Exception as ex:
         log(f"⚠️  email: {ex}", indent=2)
+
+def _build_digest_message_text(alert_name, all_listings, n_new=0, last_update=None):
+    """Construit le texte du message digest (état complet du marché OP).
+    `all_listings` : tous les produits en stock + précommandes (pas les OOS).
+    `n_new` : nombre de nouveaux produits depuis le dernier run (0 si MAJ silencieuse).
+    `last_update` : datetime de la dernière maj (pour le footer)."""
+    if not all_listings:
+        return None
+
+    n_total = len(all_listings)
+    n_sites = len({l.get("site") for l in all_listings if l.get("site")})
+
+    # Header : titre + indication "nouveauté"
+    if n_new > 0:
+        header_emoji = "🚨"
+        header_label = f"{n_new} NOUVEAU{'X' if n_new > 1 else ''}"
+        title = f"{header_emoji} {alert_name} — {header_label}"
+    else:
+        title = f"📊 ÉTAT DU MARCHÉ — {alert_name}"
+
+    # Groupage par set / type
+    sets_data = group_listings_for_digest(all_listings)
+
+    body_blocks = []
+
+    def _set_sort_key(set_code):
+        if set_code == "_other":
+            return (99, "")
+        if set_code.startswith("OP-"):
+            return (1, -int(set_code[3:]))
+        if set_code.startswith("EB-"):
+            return (2, -int(set_code[3:]))
+        if set_code.startswith("PRB-"):
+            return (3, -int(set_code[4:]))
+        if set_code.startswith("ST-"):
+            return (4, -int(set_code[3:]))
+        if set_code.startswith("DF-"):
+            return (5, -int(set_code[3:]))
+        return (6, set_code)
+
+    sorted_sets = sorted(sets_data.keys(), key=_set_sort_key)
+
+    for set_code in sorted_sets:
+        bucket = sets_data[set_code]
+        block = []
+        block.append(f"\n*══ {bucket['display_name']} ══*")
+
+        groups = bucket["groups"]
+        for ptype in PRODUCT_TYPE_ORDER:
+            if ptype not in groups:
+                continue
+            ptype_listings = groups[ptype]
+            label = PRODUCT_TYPE_LABELS.get(ptype, f"📌 {ptype.title()}")
+            block.append(f"\n*{label}*")
+
+            # Identification du moins cher dans le groupe
+            prices = [l.get("price") for l in ptype_listings if l.get("price") is not None]
+            min_price = min(prices) if prices else None
+
+            # Tri par prix croissant
+            ptype_listings.sort(key=lambda l: (l.get("price") if l.get("price") is not None else 999999))
+
+            for listing in ptype_listings:
+                site = listing.get("site", "?")
+                price = listing.get("price")
+                lang = detect_language(listing.get("title", ""))
+                lang_str = f" ({lang})" if lang else ""
+
+                if price is not None:
+                    price_str = f"{price:.2f}€" if isinstance(price, float) else f"{price}€"
+                else:
+                    price_str = "prix N/A"
+
+                # 🆕 Marqueur "nouveau produit" pour ce run
+                new_marker = " 🆕" if listing.get("_is_new") else ""
+                # Marqueur statut : précommande
+                status = listing.get("status", "in")
+                status_emoji = "🛒" if status == "preorder" else ""
+                # Marqueur "moins cher"
+                cheapest = " ✅" if (min_price is not None and price == min_price
+                                     and len(ptype_listings) > 1
+                                     and status != "preorder") else ""
+
+                line = (f"  • {status_emoji} {site}{lang_str} — *{price_str}*"
+                        f"{cheapest}{new_marker} → [voir]({listing['url']})")
+                block.append(line)
+
+        body_blocks.append("\n".join(block))
+
+    body = "\n".join(body_blocks)
+
+    # Footer : stats + timestamp
+    footer_parts = []
+    footer_parts.append(f"\nℹ️ {n_total} produits en stock chez {n_sites} boutique{'s' if n_sites > 1 else ''}")
+
+    if last_update:
+        if isinstance(last_update, datetime):
+            ts_str = last_update.strftime("%d/%m/%Y %H:%M UTC")
+        else:
+            ts_str = str(last_update)
+        footer_parts.append(f"🕐 Dernière maj : {ts_str}")
+
+    if n_new == 0:
+        footer_parts.append("_(MAJ silencieuse — aucune nouveauté depuis le dernier run)_")
+
+    md = f"*{title}*\n{body}\n\n" + "\n".join(footer_parts)
+
+    # Limite Telegram : 4096 chars
+    if len(md) > 4000:
+        # On tronque proprement au dernier saut de ligne avant 4000
+        cutoff = md.rfind("\n", 0, 4000)
+        if cutoff < 0:
+            cutoff = 4000
+        md = md[:cutoff] + "\n\n_⚠️ Message tronqué (limite Telegram 4 Ko)_"
+
+    return md
+
+
+def send_digest_notification(config, alert, all_in_stock_listings, new_urls=None,
+                               state=None, alert_key=None):
+    """Envoie ou met à jour le message digest pour `alert`.
+
+    `all_in_stock_listings` : tous les produits en stock + précommandes
+                               qui matchent l'alerte (le message complet)
+    `new_urls` : set d'URLs des produits "nouveaux" pour ce run (marqués 🆕)
+    `state` : dict d'état persistant (pour stocker l'ID du message)
+    `alert_key` : clé unique pour cette alerte (ex: alert['name'])
+    """
+    n = config.get("notifications", {})
+    if not all_in_stock_listings:
+        log(f"  (digest vide pour {alert_key})", indent=2)
+        return
+
+    # Marquer les nouveaux produits avec un flag _is_new
+    new_urls = new_urls or set()
+    for listing in all_in_stock_listings:
+        listing["_is_new"] = listing.get("url") in new_urls
+
+    n_new = sum(1 for l in all_in_stock_listings if l.get("_is_new"))
+    last_update = datetime.now(timezone.utc)
+
+    md = _build_digest_message_text(
+        alert_name=alert.get("name", "Alerte"),
+        all_listings=all_in_stock_listings,
+        n_new=n_new,
+        last_update=last_update,
+    )
+    if not md:
+        return
+
+    # Récupérer l'ID du message digest persistant pour cette alerte
+    digests = state.setdefault("digests", {}) if state is not None else {}
+    digest_info = digests.get(alert_key, {}) if alert_key else {}
+    prev_msg_id = digest_info.get("message_id")
+
+    tg_token = env_or(n, "telegram_bot_token")
+    tg_chat = env_or(n, "telegram_chat_id")
+    if not tg_token or not tg_chat:
+        log(f"  (telegram non configuré, digest non envoyé)", indent=2)
+        return
+
+    tg_thread = env_or(n, "telegram_topic_products")
+
+    # Stratégie :
+    # - Si y'a des nouveautés (n_new > 0)        : on supprime l'ancien et envoie un NOUVEAU avec son
+    # - Sinon (juste un refresh d'état)         : on ÉDITE l'ancien (silencieux)
+    # - Si l'édition échoue (msg trop vieux)    : on supprime + ré-envoie silencieux
+    edited = False
+    if prev_msg_id and n_new == 0:
+        # MAJ silencieuse : édition du message existant
+        ok = edit_telegram_message(tg_token, tg_chat, prev_msg_id, md)
+        if ok:
+            edited = True
+            log(f"  ✏️  Digest édité (silencieux) — {len(all_in_stock_listings)} produits", indent=2)
+        else:
+            # L'édition a échoué (msg trop vieux) → on supprime et ré-envoie
+            log(f"  (édition impossible, ré-envoi du digest)", indent=2)
+            delete_telegram_message(tg_token, tg_chat, prev_msg_id)
+
+    if not edited:
+        # Soit nouveautés, soit édition impossible : on supprime l'ancien et on poste un nouveau
+        if prev_msg_id:
+            delete_telegram_message(tg_token, tg_chat, prev_msg_id)
+
+        # Disable_notification : silencieux si pas de nouveauté
+        silent = (n_new == 0)
+        new_msg_id = notify_telegram(tg_token, tg_chat, md,
+                                       thread_id=tg_thread,
+                                       disable_notification=silent)
+        if new_msg_id:
+            digests[alert_key] = {
+                "message_id": new_msg_id,
+                "last_update": last_update.isoformat(),
+                "n_products": len(all_in_stock_listings),
+            }
+            label = "🚨 sonore" if not silent else "🔕 silencieux"
+            log(f"  📨 Digest {label} envoyé ({n_new} nouveau{'x' if n_new > 1 else ''}) — {len(all_in_stock_listings)} produits", indent=2)
+        else:
+            log(f"  ⚠️  Échec envoi digest", indent=2)
+
 
 def send_notifications(config, alert, listing, kind, previous=None, cm_data=None):
     n = config.get("notifications", {})
@@ -1464,11 +1885,11 @@ def listing_id(listing):
 def process_alert(config, alert, listings, state, history, now_iso, get_cm_callable=None, sites_config=None):
     """Logique de notification :
        - Produit OOS  : on enregistre l'état mais on ne notifie pas
-       - 1re vue en stock                : notif "new" (cooldown actif)
+       - 1re vue en stock                : notif "new" (regroupée dans un digest)
        - Transition OOS → en stock       : notif "back_in_stock" (BYPASSE le cooldown,
-                                            c'est l'événement le plus important pour
-                                            l'utilisateur — fenêtre d'achat critique)
-       - Baisse de prix significative    : notif "price_drop" (cooldown actif)
+                                            envoyée IMMÉDIATEMENT et SÉPARÉMENT car
+                                            événement critique)
+       - Baisse de prix significative    : notif "price_drop" (envoyée immédiatement)
        - Re-vue en stock même état       : silence (cooldown ou pas)
     """
     seen = state.setdefault("seen", {})
@@ -1479,6 +1900,11 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
     cooldown_seconds = cooldown_h * 3600
     now_dt = datetime.now(timezone.utc)
     lookups = config.get("cardmarket_lookups") or {}
+
+    # ━━━ Buffer pour le digest groupé ━━━
+    # Les notifs "new" sont accumulées et envoyées en UN SEUL message à la fin
+    # de l'alerte, pour éviter le spam de 20+ notifs sur un nouveau set.
+    digest_buffer = []  # liste de (listing, cm_data, akey)
 
     for listing in listings:
         if not matches(alert, listing):
@@ -1577,10 +2003,50 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
                 if cm_ref:
                     cm_data = get_cm_callable(cm_ref)
 
-            send_notifications(config, alert, listing, kind=kind,
-                               previous=prev_for_msg, cm_data=cm_data)
-            seen[akey]["last_notified"] = now_iso
+            # ━━━ Routage : "new" → digest ; "back_in_stock"/"price_drop" → immédiat ━━━
+            if kind == "new":
+                # On accumule pour envoi groupé en fin de boucle
+                digest_buffer.append((listing, cm_data, akey))
+            else:
+                # Notif individuelle immédiate (back_in_stock ou price_drop)
+                send_notifications(config, alert, listing, kind=kind,
+                                   previous=prev_for_msg, cm_data=cm_data)
+                seen[akey]["last_notified"] = now_iso
             fired += 1
+
+    # Buffer des nouveautés (déjà accumulées plus haut)
+    # On va aussi collecter TOUS les produits en stock + précommandes pour
+    # le message permanent, qu'ils soient nouveaux ou pas.
+    all_in_stock_listings = []
+    new_urls = set()
+
+    for listing in listings:
+        if not matches(alert, listing):
+            continue
+        # On garde tous les produits en stock OU en précommande (pas les OOS)
+        cur_oos = bool(listing.get("is_oos"))
+        cur_status = listing.get("status", "unknown")
+        if not cur_oos and cur_status in ("in", "preorder"):
+            all_in_stock_listings.append(listing)
+
+    # Marque les URLs des nouveautés (du buffer)
+    for (listing, _cm, _akey) in digest_buffer:
+        if listing.get("url"):
+            new_urls.add(listing["url"])
+
+    # ━━━ Envoi du digest permanent (édition silencieuse ou nouveau message si nouveautés) ━━━
+    # On envoie un digest même s'il n'y a pas de nouveauté (MAJ silencieuse de l'état)
+    if all_in_stock_listings:
+        alert_key = alert.get("name", "default")
+        send_digest_notification(
+            config, alert, all_in_stock_listings,
+            new_urls=new_urls,
+            state=state,
+            alert_key=alert_key,
+        )
+        # Marque les akey des nouveautés comme notifiées pour le cooldown
+        for (_listing, _cm, akey) in digest_buffer:
+            seen[akey]["last_notified"] = now_iso
 
     return fired
 

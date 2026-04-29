@@ -234,6 +234,8 @@ sites:
     priority: C
     category_url: "https://www.philibertnet.com/fr/15860-one-piece-le-jeu-de-cartes"
     platform: prestashop
+    disabled: true
+    disabled_reason: "Prix non détectés (structure HTML spécifique à investiguer)"
 
   play_in:
     name: Play-In

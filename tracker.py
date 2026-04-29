@@ -538,7 +538,19 @@ def group_listings_for_digest(listings):
     for listing in listings:
         title = listing.get("title", "")
         set_code = detect_set(title)
-        ptype = listing.get("product_type") or detect_product_type(title)
+
+        # Re-détection du type produit : on fait confiance au titre plutôt
+        # qu'au product_type stocké. Sauf si la détection par titre renvoie
+        # "other" et que le scraper a déjà classé en quelque chose, dans ce
+        # cas on garde ce que le scraper a fait.
+        title_ptype = detect_product_type(title)
+        scraper_ptype = listing.get("product_type")
+        if title_ptype != "other":
+            ptype = title_ptype
+        elif scraper_ptype and scraper_ptype != "other":
+            ptype = scraper_ptype
+        else:
+            ptype = "other"
 
         # Détection "double pack" via le titre (n'est pas dans product_type)
         tlower = title.lower()
@@ -1627,8 +1639,6 @@ def _build_digest_message_text(alert_name, all_listings, n_new=0, last_update=No
     # Groupage par set / type
     sets_data = group_listings_for_digest(all_listings)
 
-    body_blocks = []
-
     def _set_sort_key(set_code):
         if set_code == "_other":
             return (99, "")
@@ -1645,6 +1655,9 @@ def _build_digest_message_text(alert_name, all_listings, n_new=0, last_update=No
         return (6, set_code)
 
     sorted_sets = sorted(sets_data.keys(), key=_set_sort_key)
+
+    # Construction d'un bloc Markdown par set (réutilisé pour le split)
+    set_blocks = []  # liste de (set_code, str_block)
 
     for set_code in sorted_sets:
         bucket = sets_data[set_code]
@@ -1691,35 +1704,90 @@ def _build_digest_message_text(alert_name, all_listings, n_new=0, last_update=No
                         f"{cheapest}{new_marker} → [voir]({listing['url']})")
                 block.append(line)
 
-        body_blocks.append("\n".join(block))
-
-    body = "\n".join(body_blocks)
+        set_blocks.append((set_code, "\n".join(block)))
 
     # Footer : stats + timestamp
     footer_parts = []
     footer_parts.append(f"\nℹ️ {n_total} produits en stock chez {n_sites} boutique{'s' if n_sites > 1 else ''}")
-
     if last_update:
         if isinstance(last_update, datetime):
             ts_str = last_update.strftime("%d/%m/%Y %H:%M UTC")
         else:
             ts_str = str(last_update)
         footer_parts.append(f"🕐 Dernière maj : {ts_str}")
-
     if n_new == 0:
         footer_parts.append("_(MAJ silencieuse — aucune nouveauté depuis le dernier run)_")
+    footer = "\n".join(footer_parts)
 
-    md = f"*{title}*\n{body}\n\n" + "\n".join(footer_parts)
+    # ━━━ Split intelligent par set pour respecter la limite Telegram (3500 chars) ━━━
+    # On agrège les sets dans des messages successifs jusqu'à ~3500 chars.
+    # Telegram autorise 4096 chars mais on garde une marge pour le footer/header.
+    SOFT_LIMIT = 3500
+    HEADER_LEN = len(title) + 5  # "*Title*\n" + marge
 
-    # Limite Telegram : 4096 chars
-    if len(md) > 4000:
-        # On tronque proprement au dernier saut de ligne avant 4000
-        cutoff = md.rfind("\n", 0, 4000)
-        if cutoff < 0:
-            cutoff = 4000
-        md = md[:cutoff] + "\n\n_⚠️ Message tronqué (limite Telegram 4 Ko)_"
+    messages = []
+    current_body = ""
+    current_idx = 0
+    total_msgs_estimate = 1  # mis à jour après le premier passage
 
-    return md
+    def _build_msg(idx, total, body, with_footer):
+        """Construit le markdown final d'un message, avec header de pagination."""
+        if total > 1:
+            page_label = f" ({idx}/{total})"
+        else:
+            page_label = ""
+        header = f"*{title}{page_label}*"
+        if with_footer:
+            return f"{header}\n{body}\n\n{footer}"
+        else:
+            return f"{header}\n{body}"
+
+    # Premier passage : on aggrège pour estimer le nombre total de messages
+    pending_blocks = []
+    pending_len = 0
+    splits = []  # liste de listes de blocs
+
+    for set_code, block_md in set_blocks:
+        block_len = len(block_md)
+        # Si l'ajout dépasserait la limite ET qu'on a déjà des blocs : on splitte
+        if pending_blocks and (pending_len + block_len > SOFT_LIMIT - HEADER_LEN):
+            splits.append(pending_blocks)
+            pending_blocks = []
+            pending_len = 0
+        pending_blocks.append(block_md)
+        pending_len += block_len + 2  # +2 pour le \n de jointure
+
+    if pending_blocks:
+        splits.append(pending_blocks)
+
+    total_msgs = len(splits)
+
+    # Vérification : le dernier message + footer ne doit pas dépasser 4000 chars
+    # Si oui, on ajoute encore un split
+    if total_msgs > 0:
+        last_body = "\n".join(splits[-1])
+        last_msg = _build_msg(total_msgs, total_msgs, last_body, with_footer=True)
+        if len(last_msg) > 3900 and len(splits[-1]) > 1:
+            # On déplace le dernier bloc dans un nouveau message
+            moved = splits[-1].pop()
+            splits.append([moved])
+            total_msgs += 1
+
+    # Construction finale des messages
+    for idx, blocks in enumerate(splits, start=1):
+        body = "\n".join(blocks)
+        # Le footer est sur le DERNIER message uniquement
+        with_footer = (idx == total_msgs)
+        msg = _build_msg(idx, total_msgs, body, with_footer=with_footer)
+        # Sanity check : ne dépasse jamais 4096
+        if len(msg) > 4090:
+            cutoff = msg.rfind("\n", 0, 4000)
+            if cutoff < 0:
+                cutoff = 4000
+            msg = msg[:cutoff] + "\n\n_⚠️ Message tronqué_"
+        messages.append(msg)
+
+    return messages  # liste de strings, pas un seul string
 
 
 def send_digest_notification(config, alert, all_in_stock_listings, new_urls=None,
@@ -1735,7 +1803,7 @@ def send_digest_notification(config, alert, all_in_stock_listings, new_urls=None
     n = config.get("notifications", {})
     if not all_in_stock_listings:
         log(f"  (digest vide pour {alert_key})", indent=2)
-        return
+        return False
 
     # Marquer les nouveaux produits avec un flag _is_new
     new_urls = new_urls or set()
@@ -1745,64 +1813,91 @@ def send_digest_notification(config, alert, all_in_stock_listings, new_urls=None
     n_new = sum(1 for l in all_in_stock_listings if l.get("_is_new"))
     last_update = datetime.now(timezone.utc)
 
-    md = _build_digest_message_text(
+    messages = _build_digest_message_text(
         alert_name=alert.get("name", "Alerte"),
         all_listings=all_in_stock_listings,
         n_new=n_new,
         last_update=last_update,
     )
-    if not md:
-        return
+    if not messages:
+        return False
 
-    # Récupérer l'ID du message digest persistant pour cette alerte
+    # Récupérer les IDs des messages digest persistants pour cette alerte.
+    # Compatibilité descendante : si l'ancien state contient `message_id` (singulier),
+    # on le convertit en `message_ids` (pluriel).
     digests = state.setdefault("digests", {}) if state is not None else {}
     digest_info = digests.get(alert_key, {}) if alert_key else {}
-    prev_msg_id = digest_info.get("message_id")
+    prev_msg_ids = digest_info.get("message_ids", [])
+    if not prev_msg_ids and digest_info.get("message_id"):
+        # Migration ancien format → nouveau
+        prev_msg_ids = [digest_info["message_id"]]
 
     tg_token = env_or(n, "telegram_bot_token")
     tg_chat = env_or(n, "telegram_chat_id")
     if not tg_token or not tg_chat:
         log(f"  (telegram non configuré, digest non envoyé)", indent=2)
-        return
+        return False
 
     tg_thread = env_or(n, "telegram_topic_products")
 
-    # Stratégie :
-    # - Si y'a des nouveautés (n_new > 0)        : on supprime l'ancien et envoie un NOUVEAU avec son
-    # - Sinon (juste un refresh d'état)         : on ÉDITE l'ancien (silencieux)
-    # - Si l'édition échoue (msg trop vieux)    : on supprime + ré-envoie silencieux
-    edited = False
-    if prev_msg_id and n_new == 0:
-        # MAJ silencieuse : édition du message existant
-        ok = edit_telegram_message(tg_token, tg_chat, prev_msg_id, md)
-        if ok:
-            edited = True
-            log(f"  ✏️  Digest édité (silencieux) — {len(all_in_stock_listings)} produits", indent=2)
-        else:
-            # L'édition a échoué (msg trop vieux) → on supprime et ré-envoie
-            log(f"  (édition impossible, ré-envoi du digest)", indent=2)
-            delete_telegram_message(tg_token, tg_chat, prev_msg_id)
+    # Stratégie de mise à jour :
+    # - Si nombre de messages identique ET aucune nouveauté → ÉDITION en place (silencieux)
+    # - Sinon → on supprime tous les anciens + envoie tous les nouveaux
+    can_edit_in_place = (len(prev_msg_ids) == len(messages) and n_new == 0)
 
-    if not edited:
-        # Soit nouveautés, soit édition impossible : on supprime l'ancien et on poste un nouveau
-        if prev_msg_id:
-            delete_telegram_message(tg_token, tg_chat, prev_msg_id)
-
-        # Disable_notification : silencieux si pas de nouveauté
-        silent = (n_new == 0)
-        new_msg_id = notify_telegram(tg_token, tg_chat, md,
-                                       thread_id=tg_thread,
-                                       disable_notification=silent)
-        if new_msg_id:
+    edited_count = 0
+    if can_edit_in_place and prev_msg_ids:
+        all_ok = True
+        for prev_id, md in zip(prev_msg_ids, messages):
+            ok = edit_telegram_message(tg_token, tg_chat, prev_id, md)
+            if ok:
+                edited_count += 1
+            else:
+                all_ok = False
+                break
+        if all_ok:
+            log(f"  ✏️  Digest édité (silencieux) — {len(all_in_stock_listings)} produits sur {len(messages)} message(s)", indent=2)
+            # Mise à jour du state (nouveau timestamp)
             digests[alert_key] = {
-                "message_id": new_msg_id,
+                "message_ids": prev_msg_ids,
                 "last_update": last_update.isoformat(),
                 "n_products": len(all_in_stock_listings),
             }
-            label = "🚨 sonore" if not silent else "🔕 silencieux"
-            log(f"  📨 Digest {label} envoyé ({n_new} nouveau{'x' if n_new > 1 else ''}) — {len(all_in_stock_listings)} produits", indent=2)
+            return True
         else:
-            log(f"  ⚠️  Échec envoi digest", indent=2)
+            log(f"  (édition partielle/impossible, ré-envoi complet)", indent=2)
+
+    # Suppression des anciens messages
+    for old_id in prev_msg_ids:
+        delete_telegram_message(tg_token, tg_chat, old_id)
+
+    # Envoi des nouveaux messages
+    silent = (n_new == 0)
+    new_ids = []
+    for idx, md in enumerate(messages):
+        # Seul le 1er message porte la notification sonore (s'il y a des nouveautés).
+        # Les messages suivants sont toujours silencieux pour ne pas spammer.
+        first_silent = silent or (idx > 0)
+        msg_id = notify_telegram(tg_token, tg_chat, md,
+                                  thread_id=tg_thread,
+                                  disable_notification=first_silent)
+        if msg_id:
+            new_ids.append(msg_id)
+        else:
+            log(f"  ⚠️  Échec envoi message {idx+1}/{len(messages)}", indent=2)
+
+    if new_ids:
+        digests[alert_key] = {
+            "message_ids": new_ids,
+            "last_update": last_update.isoformat(),
+            "n_products": len(all_in_stock_listings),
+        }
+        label = "🚨 sonore" if not silent else "🔕 silencieux"
+        log(f"  📨 Digest {label} envoyé ({n_new} nouveau{'x' if n_new > 1 else ''}) — {len(all_in_stock_listings)} produits sur {len(new_ids)} message(s)", indent=2)
+        return True
+    else:
+        log(f"  ⚠️  Échec envoi digest", indent=2)
+        return False
 
 
 def send_notifications(config, alert, listing, kind, previous=None, cm_data=None):
@@ -2038,7 +2133,7 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
     # On envoie un digest même s'il n'y a pas de nouveauté (MAJ silencieuse de l'état)
     if all_in_stock_listings:
         alert_key = alert.get("name", "default")
-        send_digest_notification(
+        digest_sent = send_digest_notification(
             config, alert, all_in_stock_listings,
             new_urls=new_urls,
             state=state,
@@ -2047,6 +2142,12 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
         # Marque les akey des nouveautés comme notifiées pour le cooldown
         for (_listing, _cm, akey) in digest_buffer:
             seen[akey]["last_notified"] = now_iso
+        # Compte le digest comme une notif (s'il a été envoyé)
+        if digest_sent:
+            # Si y'avait des nouveautés ET qu'on les a déjà comptées dans `fired`,
+            # on n'en rajoute pas. Sinon (édition silencieuse), on compte 1.
+            if not digest_buffer:
+                fired += 1
 
     return fired
 

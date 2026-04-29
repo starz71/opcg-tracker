@@ -620,13 +620,36 @@ def _scrape_by_url_pattern(soup, base_url, site):
         # Anti-doublon par URL canonique (sans query string ni fragment)
         clean_url = f"{parsed.scheme}://{parsed.netloc}{path}" if parsed.netloc else full
 
-        # Si déjà vu : on remplace seulement si le nouveau <a> a un titre meilleur
+        # Si déjà vu : on remplace seulement si le nouveau <a> a un titre meilleur.
+        # "Meilleur" = non générique ET plus long. Cela évite que des <a>
+        # "Plus d'infos" / "Ajouter au panier" écrasent un <a> avec un vrai
+        # titre produit dans son attribut title=.
         if clean_url in candidates:
             existing = candidates[clean_url]
-            new_text = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
-            old_text = (existing.get("title") or existing.get_text(" ", strip=True) or "").strip()
-            # On garde le nouveau s'il a un texte ET (l'ancien n'en a pas OU le nouveau est plus long)
-            if new_text and (not old_text or len(new_text) > len(old_text)):
+
+            # Texte candidat du nouveau et de l'existant
+            def _best_text(el):
+                t1 = (el.get("title") or "").strip()
+                t2 = el.get_text(" ", strip=True)
+                # On préfère le plus long et non générique
+                t1_low = t1.lower()
+                t2_low = t2.lower()
+                generic = {
+                    "plus d'infos", "plus d infos", "more info",
+                    "ajouter au panier", "add to cart",
+                    "précommander", "precommander", "preorder",
+                    "voir le produit", "view product",
+                    "détails", "details", "découvrir",
+                }
+                cand1 = t1 if (t1 and t1_low not in generic) else ""
+                cand2 = t2 if (t2 and t2_low not in generic and len(t2) > 5) else ""
+                # Le plus long entre les deux
+                return cand1 if len(cand1) >= len(cand2) else cand2
+
+            new_text = _best_text(a)
+            old_text = _best_text(existing)
+            # On garde le nouveau si son texte est meilleur
+            if new_text and len(new_text) > len(old_text):
                 candidates[clean_url] = a
         else:
             candidates[clean_url] = a
@@ -708,23 +731,80 @@ def _scrape_by_url_pattern(soup, base_url, site):
             if container.name in ("li", "article"):
                 break
 
-        # Extraction du titre : title attribute du <a> > texte du <a> > h1/h2/h3 dans container
-        title = (anchor.get("title") or "").strip()
+        # ━━━ Extraction du titre — stratégie multi-source avec filtrage ━━━
+        # On REJETTE les textes génériques (boutons, nav, breadcrumb) :
+        GENERIC_TITLES = {
+            "plus d'infos", "plus d infos", "more info", "more information",
+            "ajouter au panier", "add to cart", "add to basket",
+            "précommander", "precommander", "preorder", "pre-order",
+            "voir le produit", "voir les détails", "voir détails",
+            "view product", "see product", "voir", "view",
+            "détails", "details", "lire la suite", "read more",
+            "découvrir", "discover", "shop now", "acheter",
+            "cliquez ici", "click here", "en savoir plus", "learn more",
+            "voir la catégorie", "voir tout", "see all", "view all",
+            "next", "previous", "suivant", "précédent", "precedent",
+            # Catégories/breadcrumbs courants (faux positifs Philibert)
+            "one piece - le jeu de cartes", "one piece le jeu de cartes",
+            "jeux de cartes", "jeux de société", "boutique",
+            "one piece card game", "one piece tcg",
+        }
+
+        def _is_generic(t):
+            if not t:
+                return True
+            tl = t.lower().strip()
+            if tl in GENERIC_TITLES:
+                return True
+            # Trop court (1-2 mots simples)
+            if len(tl) < 10:
+                return True
+            return False
+
+        # 1. Titre via <h1>/<h2>/<h3>/<h4> dans le container (priorité haute :
+        #    c'est la structure la plus courante pour les fiches produits)
+        title = ""
+        for h in container.find_all(["h1", "h2", "h3", "h4"]):
+            t = h.get_text(" ", strip=True)
+            if t and not _is_generic(t):
+                title = t
+                break
+
+        # 2. Si pas de titre via heading, on essaie le title attribute du <a>
         if not title:
-            title = anchor.get_text(" ", strip=True)
-        if not title or len(title) < 3:
-            for h in container.find_all(["h1", "h2", "h3", "h4"]):
-                t = h.get_text(" ", strip=True)
-                if t and len(t) > 3:
-                    title = t
+            cand = (anchor.get("title") or "").strip()
+            if cand and not _is_generic(cand):
+                title = cand
+
+        # 3. Sinon, le texte du <a> lui-même
+        if not title:
+            cand = anchor.get_text(" ", strip=True)
+            if cand and not _is_generic(cand):
+                title = cand
+
+        # 4. Tout autre <a> du container avec un titre long et significatif
+        #    (cas Philibert : un <a> avec title="Display OP15..." parmi
+        #    plusieurs <a> "Plus d'infos" ou "Ajouter au panier")
+        if not title:
+            for other_a in container.find_all("a", href=True):
+                cand = (other_a.get("title") or "").strip()
+                if cand and not _is_generic(cand) and len(cand) > 15:
+                    title = cand
                     break
+                cand = other_a.get_text(" ", strip=True)
+                if cand and not _is_generic(cand) and len(cand) > 15:
+                    title = cand
+                    break
+
+        # 5. Texte alt de l'image (dernier recours)
         if not title:
-            # Texte alt de l'image
             img = container.find("img")
             if img and img.get("alt"):
-                title = img.get("alt").strip()
+                cand = img.get("alt").strip()
+                if not _is_generic(cand):
+                    title = cand
 
-        if not title or len(title) < 3:
+        if not title or len(title) < 10:
             continue
         # Limite la longueur (évite les blocs descriptifs)
         if len(title) > 250:

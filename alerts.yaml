@@ -424,15 +424,27 @@ alerts:
       "deck pour débutant", "deck pour debutant",
       "deck pour débutants", "deck pour debutants",
       "deck d'initiation", "deck initiation",
+      # Coffrets découverte / Learn Together (déguisé en starter deck)
+      "learn together", "learn-together", "learntogether",
+      "apprenez ensemble", "apprenez-ensemble",
+      "coffret découverte", "coffret decouverte",
+      "coffret d'initiation", "coffret initiation",
+      "lot de decks", "deck pack", "double deck",
       "ST-01", "ST-02", "ST-03", "ST-04", "ST-05", "ST-06", "ST-07",
       "ST-08", "ST-09", "ST-10", "ST-11", "ST-12", "ST-13", "ST-14",
       "ST-15", "ST-16", "ST-17", "ST-18", "ST-19", "ST-20", "ST-21",
       "ST-22", "ST-23", "ST-24", "ST-25", "ST-26", "ST-27", "ST-28",
       "ST-29", "ST-30", "ST01", "ST02", "ST03", "ST04", "ST05",
-      # Cartes à l'unité / singles
+      # Cartes à l'unité / singles / cartes gradées
       "single card", "carte unique", "à l'unité", "a l'unite",
       "vendue à l'unité", "vendu à l'unité", "vendu a l'unite",
       "carte seule", "carte alt art", "alt-art card",
+      "carte gradée", "carte gradee", "cartes gradées", "cartes gradees",
+      "graded card", "graded cards", "grading",
+      "psa 9", "psa 10", "psa-9", "psa-10",
+      "bgs 9", "bgs 10", "bgs-9", "bgs-10", "bgs 9.5",
+      "ccc 9", "ccc 10", "ccc-9", "ccc-10",
+      "mint 9", "mint 10", "gem mint",
       # Accessoires
       "playmat", "playmats", "tapis de jeu", "tapis jeu",
       "deck box", "deck-box", "deckbox",

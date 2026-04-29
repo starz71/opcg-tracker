@@ -41,8 +41,8 @@ ALERTS_FILE  = ROOT / "alerts.yaml"
 STATE_FILE   = ROOT / "state.json"
 HISTORY_FILE = ROOT / "history.json"
 
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 TIMEOUT = 25
 DELAY_RANGE = (2.0, 4.5)   # délai aléatoire entre requêtes (politesse)
 MAX_RETRIES = 2
@@ -110,27 +110,64 @@ PREORDER_CSS_HINTS = [
 # site ne définit pas explicitement ses selectors.
 PLATFORM_SELECTORS = {
     "prestashop": {
-        "product": "article.js-product-miniature, article.product-miniature, .product-miniature",
-        "title": ".product-title a, .product-name a, h2.product-title, .product-title",
-        "link": ".product-title a, .product-name a, .thumbnail-container a",
-        # Plus exhaustif : on essaie span.price puis .product-price-and-shipping,
-        # puis [content] (microdata Prestashop), puis fallback générique
-        "price": "span.price, .product-price-and-shipping .price, .product-price, [itemprop=price], .regular-price",
-        "availability": ".product-availability, .product-flags, .out-of-stock",
+        # Élargi : v1.6 utilise <li class="ajax_block_product">, v1.7+ utilise <article class="js-product-miniature">,
+        # Philibert/Goupiya peuvent avoir des structures custom .product-thumbnail / .product-card
+        "product": ("article.js-product-miniature, article.product-miniature, "
+                    ".product-miniature, li.ajax_block_product, .product-thumbnail, "
+                    ".product-card, li.product, .item-product"),
+        "title": (".product-title a, .product-name a, h2.product-title, .product-title, "
+                  ".product-name, h3.product-name a, a.product-name, .name a, h2 a, h3 a"),
+        "link": (".product-title a, .product-name a, .thumbnail-container a, "
+                 "a.product_img_link, a.product-name, .product-image a, "
+                 "a.product-card__link, .name a, h2 a, h3 a"),
+        "price": ("span.price, .product-price-and-shipping .price, .product-price, "
+                  "[itemprop=price], .regular-price, .content_price .price, "
+                  ".product-card__price, .price__current, span.amount"),
+        "availability": (".product-availability, .product-flags, .out-of-stock, "
+                         ".availability, .stock-info, .product-availability-list, "
+                         ".product-flag, span.online_only"),
     },
     "shopify": {
-        "product": ".product-card, .product-item, .grid__item, .grid-product, [class*=ProductCard], .card-wrapper",
-        "title": ".product-card__title, .product-item__title, .product-card__name, h3, .product-title, .card__heading",
-        "link": "a.product-card__link, a.product-item__image-wrapper, .grid-product__link, .product-card__media, a.full-unstyled-link, a",
-        "price": ".price__current, .price-item--regular, .product-card__price, .price, .money, .price-item, [class*=price]",
-        "availability": ".badge--bottom-left, .product-card__sold-out, .sold-out, [class*=sold-out]",
+        "product": (".product-card, .product-item, .grid__item, .grid-product, "
+                    "[class*=ProductCard], .card-wrapper, .product-grid-item, "
+                    ".collection-product-card, li.collection__products-item, "
+                    ".grid__item--collection-template, .productitem"),
+        "title": (".product-card__title, .product-item__title, .product-card__name, "
+                  "h3, .product-title, .card__heading, .productitem--title, "
+                  ".product-grid-item__title, .product-card__name, .product-name"),
+        "link": ("a.product-card__link, a.product-item__image-wrapper, "
+                 ".grid-product__link, .product-card__media, a.full-unstyled-link, "
+                 ".productitem--image-link, .product-grid-item__link, a.card-link, "
+                 ".product-card__link-wrapper, a"),
+        "price": (".price__current, .price-item--regular, .product-card__price, "
+                  ".price, .money, .price-item, [class*=price], .productitem--price, "
+                  ".product-grid-item__price, .product-price"),
+        "availability": (".badge--bottom-left, .product-card__sold-out, .sold-out, "
+                         "[class*=sold-out], .product-label, .productitem--badge, "
+                         ".price--sold-out, .stock-out"),
     },
     "woocommerce": {
-        "product": "li.product, .product, .wc-block-grid__product",
-        "title": ".woocommerce-loop-product__title, h2.woocommerce-loop-product__title, .wc-block-grid__product-title",
-        "link": "a.woocommerce-LoopProduct-link, a.woocommerce-loop-product__link, a.wc-block-grid__product-link",
-        "price": ".price ins .amount, .price > .amount, .price .amount, .woocommerce-Price-amount",
-        "availability": ".out-of-stock, .stock, .outofstock",
+        "product": ("li.product, .product, .wc-block-grid__product, "
+                    ".product-grid .product, .products .product, ul.products li"),
+        "title": (".woocommerce-loop-product__title, h2.woocommerce-loop-product__title, "
+                  ".wc-block-grid__product-title, h2.product-title, h3.product-title"),
+        "link": ("a.woocommerce-LoopProduct-link, a.woocommerce-loop-product__link, "
+                 "a.wc-block-grid__product-link, .product-link, h2 a, h3 a"),
+        "price": (".price ins .amount, .price > .amount, .price .amount, "
+                  ".woocommerce-Price-amount, span.price, .product-price"),
+        "availability": (".out-of-stock, .stock, .outofstock, .availability"),
+    },
+    # Fallback générique : tente de trouver tout produit qui ressemble à une fiche
+    # commerciale. Très permissif, à utiliser en dernier recours.
+    "generic": {
+        "product": ("[class*=product-item], [class*=product-card], "
+                    "[class*=ProductCard], [class*=product_item], li.product, "
+                    "[itemtype*=Product], article[class*=product]"),
+        "title": ("h2 a, h3 a, .title a, .name a, [itemprop=name], a[title]"),
+        "link": ("a[href]"),
+        "price": ("[class*=price], [itemprop=price], .amount, .money"),
+        "availability": ("[class*=stock], [class*=availability], [class*=sold-out], "
+                         "[class*=out-of-stock], [class*=epuise]"),
     },
 }
 
@@ -162,19 +199,37 @@ def make_session():
         s = requests.Session()
     s.headers.update({
         "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
         "Cache-Control": "no-cache",
     })
     return s
 
-def fetch(session, url):
-    """GET avec retry et backoff léger."""
+def fetch(session, url, referer=None):
+    """GET avec retry et backoff léger.
+    Ajoute automatiquement un Referer (Google) pour réduire les 403 anti-bot."""
     last_err = None
+    headers_extra = {}
+    if referer:
+        headers_extra["Referer"] = referer
+    else:
+        # Simule un clic depuis Google (les sites font moins de 403 sur ce trafic)
+        headers_extra["Referer"] = "https://www.google.com/"
+
     for attempt in range(MAX_RETRIES + 1):
         try:
-            r = session.get(url, timeout=TIMEOUT)
+            r = session.get(url, timeout=TIMEOUT, headers=headers_extra)
             r.raise_for_status()
             return r
         except Exception as ex:
@@ -237,6 +292,22 @@ def extract_price(card, price_selector):
             if p:
                 return p
 
+    # Stratégie 3 : fallback regex sur tout le texte du conteneur
+    # Pour les sites sans classe CSS standard sur le prix (ex: Ultrajeux qui
+    # met juste "<span>189,90 €</span>" sans classe). On capture le PREMIER
+    # prix qui ressemble à NN,NN € ou NN.NN € ou € NN,NN.
+    full_text = card.get_text(" ", strip=True)
+    if full_text:
+        # Patterns prix : "189,90 €", "189.90€", "€189,90", "1 234,56 €"
+        # On cherche un nombre suivi (ou précédé) de € ou EUR
+        m = re.search(r"(\d{1,4}(?:[\s\u00a0]\d{3})*(?:[.,]\d{1,2})?)\s*€", full_text)
+        if not m:
+            m = re.search(r"€\s*(\d{1,4}(?:[\s\u00a0]\d{3})*(?:[.,]\d{1,2})?)", full_text)
+        if m:
+            p = parse_price(m.group(0))
+            if p:
+                return p
+
     return None
 
 def text_of(el):
@@ -260,24 +331,39 @@ def is_out_of_stock(card, availability_text=""):
         if hint in card_html_low:
             return True
 
-    # 3. Texte global de la carte (dernier recours, prudent)
+    # 3. Texte global de la carte (dernier recours)
+    # On cherche les markers OOS dans le texte complet du conteneur. Cas typique :
+    # Ultrajeux affiche juste "<strong>Indisponible</strong>" sans classe CSS.
     card_text = card.get_text(" ", strip=True).lower()
-    if "sold out" in card_text or "soldout" in card_text:
-        return True
-    if "rupture de stock" in card_text or "stock épuisé" in card_text:
-        return True
-    if "épuisé" in card_text or "epuise" in card_text:
-        # Vérifier que c'est bien sur un bouton ou une indication de stock,
-        # pas dans un nom de produit qui contient "épuisé" (peu probable mais
-        # bonne ceinture)
-        return True
+    # Avant tout : vérifier qu'on n'est PAS en précommande déguisée
+    # (les précommandes contiennent souvent "indisponible" mais sont gérées
+    # par is_preorder, pas ici)
+    is_preorder_text = any(
+        m in card_text for m in ["précommande", "precommande", "préco.", "preco.",
+                                  "preorder", "pre-order", "à venir", "a venir"]
+    )
+    if is_preorder_text:
+        return False
+
+    for marker in OUT_OF_STOCK_MARKERS:
+        if marker in card_text:
+            return True
 
     return False
 
-def is_preorder(card, availability_text="", title=""):
+def is_preorder(card, availability_text="", title="", url=""):
     """Détecte si un produit est en précommande.
-    Vérifie cartes (texte + CSS), titre, et indicateurs de date future.
+    Vérifie URL, cartes (texte + CSS), titre, et indicateurs de date future.
     Renvoie True si précommande détectée."""
+    # 0. URL : si l'URL contient explicitement /precommande(s)/, c'est sûr
+    # Cas Nippon TCG : /precommandes/one-piece-chopper-s-book...
+    if url:
+        url_low = url.lower()
+        for url_marker in ["/precommande", "/precommandes", "/pre-commande",
+                           "/preorder", "/pre-order", "/precommander"]:
+            if url_marker in url_low:
+                return True
+
     # 1. Texte d'availability
     if availability_text:
         low = availability_text.lower()
@@ -347,6 +433,37 @@ def detect_product_type(title):
                 return label
     return "other"
 
+
+# Mots-clés d'accessoires à EXCLURE complètement de la surveillance.
+# Ces produits ne sont pas l'intérêt principal d'un acheteur de displays/boosters.
+ACCESSORY_EXCLUDE_KEYWORDS = [
+    # Tapis de jeu
+    "tapis de jeu", "tapis officiel", "playmat", "play mat", "playing mat",
+    # Pochettes
+    "sleeve", "pochette de carte", "pochette protege", "pochette protège",
+    "protège-carte", "protege-carte", "protège carte", "protege carte",
+    # Classeurs / range-cartes
+    "binder", "classeur", "range-cartes", "range cartes", "porte-cartes",
+    "porte cartes", "card binder", "album de cartes",
+    # Boîtes de rangement
+    "card case", "deck box", "deck case", "boite de rangement",
+    "boîte de rangement", "storage box", "rangement",
+    # Goodies divers
+    "card holder", "présentoir", "presentoir", "tin box",
+]
+
+
+def is_excluded_accessory(title):
+    """Renvoie True si le titre indique un accessoire à exclure de la surveillance
+    (playmat, sleeve, classeur, etc.)."""
+    if not title:
+        return False
+    t = title.lower()
+    for kw in ACCESSORY_EXCLUDE_KEYWORDS:
+        if kw in t:
+            return True
+    return False
+
 # ───────────────────────────── Recherche site ─────────────────────────
 def search_site(session, site, query):
     """Cherche `query` sur un site, renvoie la liste des produits trouvés."""
@@ -393,6 +510,181 @@ def search_site(session, site, query):
     return results
 
 # ───────────────────────── Page catégorie ─────────────────────────────
+def _scrape_by_url_pattern(soup, base_url, site):
+    """Fallback ultime : extrait les produits en cherchant les liens qui
+    correspondent à des URLs de fiches produit, peu importe les classes CSS.
+
+    Détecte automatiquement le pattern d'URL (Shopify /products/, WooCommerce
+    /produit/ ou /product/, Prestashop /XXX-slug). Pour chaque lien trouvé,
+    on remonte au conteneur parent qui inclut titre + prix + image."""
+    from urllib.parse import urlparse
+
+    # Normalisation : on travaille avec le path du domaine du site
+    base_parsed = urlparse(base_url)
+    base_host = base_parsed.netloc
+
+    # Patterns de fiches produit dans l'URL (insensible à la casse)
+    PATTERNS = [
+        re.compile(r"/products/[a-z0-9_\-]+", re.I),       # Shopify
+        re.compile(r"/produit/\d+/[a-z0-9_\-]+", re.I),     # Play-In FR
+        re.compile(r"/produit/[a-z0-9_\-]+", re.I),         # WooCommerce FR
+        re.compile(r"/product/[a-z0-9_\-]+", re.I),         # WooCommerce EN
+        re.compile(r"/produit-\d+-[a-z0-9_\-]+", re.I),     # Prestashop custom (Ultrajeux)
+        re.compile(r"/fr/[^/]+/\d+-[a-z0-9_\-]+", re.I),    # Prestashop FR (Philibert)
+        re.compile(r"/[a-z]{2}/\d+-[a-z0-9_\-]+", re.I),    # Prestashop multilingue
+        re.compile(r"^/\d+-[a-z0-9_\-]+\.html?$", re.I),    # Prestashop simple
+        re.compile(r"\.html?$.*[a-z0-9_\-]+\.html?$", re.I), # autres .html (Mystic Ambre, etc.)
+    ]
+
+    # Collecte des liens candidats (uniques par URL) — quand 2 <a> pointent
+    # vers la même URL (cas fréquent : un <a> autour de l'image + un <a>
+    # autour du titre), on garde celui qui a le titre le plus pertinent.
+    candidates = {}  # url → balise <a>
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "")
+        if not href:
+            continue
+        # On ignore les ancres et les javascript:
+        if href.startswith("#") or href.lower().startswith("javascript:"):
+            continue
+        # Normalise le path
+        try:
+            full = urljoin(base_url, href)
+            parsed = urlparse(full)
+            # Ne garde que les liens du même domaine
+            if parsed.netloc and parsed.netloc != base_host:
+                continue
+            path = parsed.path
+        except Exception:
+            continue
+        # Vérifie si le path matche un pattern produit
+        if not any(p.search(path) for p in PATTERNS):
+            continue
+        # Anti-doublon par URL canonique (sans query string ni fragment)
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{path}" if parsed.netloc else full
+
+        # Si déjà vu : on remplace seulement si le nouveau <a> a un titre meilleur
+        if clean_url in candidates:
+            existing = candidates[clean_url]
+            new_text = (a.get("title") or a.get_text(" ", strip=True) or "").strip()
+            old_text = (existing.get("title") or existing.get_text(" ", strip=True) or "").strip()
+            # On garde le nouveau s'il a un texte ET (l'ancien n'en a pas OU le nouveau est plus long)
+            if new_text and (not old_text or len(new_text) > len(old_text)):
+                candidates[clean_url] = a
+        else:
+            candidates[clean_url] = a
+
+    if len(candidates) < 3:
+        return []
+
+    # Extraction : pour chaque lien, remonter au plus petit conteneur "produit"
+    # (li, article, ou div qui contient image + texte + prix éventuel)
+    results = []
+    seen_titles = set()
+    for full_url, anchor in list(candidates.items())[:60]:
+        # Trouve le conteneur parent : li, article, ou div significatif.
+        # Critère d'arrêt : le conteneur ne doit PAS contenir plusieurs
+        # liens distincts vers d'autres fiches produit (sinon on englobe
+        # plusieurs cards = faux positif statut/prix sur le mauvais produit)
+        container = anchor
+        previous = anchor
+        for _ in range(8):  # max 8 remontées
+            parent = container.parent
+            if not parent or parent.name in ("body", "html", None):
+                break
+
+            # Compter combien de liens produits DIFFÉRENTS sont dans ce parent
+            distinct_product_urls = set()
+            for a in parent.find_all("a", href=True):
+                ah = a.get("href", "")
+                try:
+                    p_full = urljoin(base_url, ah)
+                    p_path = urlparse(p_full).path
+                except Exception:
+                    continue
+                if any(p.search(p_path) for p in PATTERNS):
+                    p_clean = f"{urlparse(p_full).scheme}://{urlparse(p_full).netloc}{p_path}"
+                    distinct_product_urls.add(p_clean)
+
+            if len(distinct_product_urls) > 1:
+                # Trop large : on a englobé plusieurs produits
+                # On revient au container précédent (qui n'avait qu'un seul produit)
+                break
+
+            previous = container
+            container = parent
+
+            # Critère d'arrêt positif : on est dans un li ou article
+            if container.name in ("li", "article"):
+                break
+
+        # Extraction du titre : title attribute du <a> > texte du <a> > h1/h2/h3 dans container
+        title = (anchor.get("title") or "").strip()
+        if not title:
+            title = anchor.get_text(" ", strip=True)
+        if not title or len(title) < 3:
+            for h in container.find_all(["h1", "h2", "h3", "h4"]):
+                t = h.get_text(" ", strip=True)
+                if t and len(t) > 3:
+                    title = t
+                    break
+        if not title:
+            # Texte alt de l'image
+            img = container.find("img")
+            if img and img.get("alt"):
+                title = img.get("alt").strip()
+
+        if not title or len(title) < 3:
+            continue
+        # Limite la longueur (évite les blocs descriptifs)
+        if len(title) > 250:
+            title = title[:250].rsplit(" ", 1)[0]
+
+        # Anti-doublon par titre normalisé
+        title_key = re.sub(r"\s+", " ", title.lower()).strip()
+        if title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+
+        # Extraction prix (cherche dans le container)
+        price = extract_price(container, "[class*=price], [itemprop=price], .amount, .money, span.price")
+
+        # Texte de disponibilité (rupture / précommande)
+        avail_el = container.select_one(
+            "[class*=stock], [class*=sold-out], [class*=out-of-stock], "
+            "[class*=epuise], [class*=availability], [class*=preorder], "
+            "[class*=precommande]"
+        )
+        avail = text_of(avail_el) if avail_el else ""
+
+        # Détection statut
+        is_pre = is_preorder(container, avail, title, url=full_url)
+        is_oos = is_out_of_stock(container, avail)
+        if is_pre:
+            status = "preorder"
+        elif is_oos:
+            status = "out"
+        else:
+            status = "in"
+        # Exclusion accessoires
+        if is_excluded_accessory(title):
+            continue
+
+        ptype = detect_product_type(title)
+        results.append({
+            "title": title,
+            "url": full_url,
+            "price": price,
+            "availability": avail,
+            "in_stock": status == "in",
+            "out_of_stock": status == "out",
+            "status": status,
+            "product_type": ptype,
+        })
+
+    return results
+
+
 def scrape_category(session, site):
     """Scrape la page catégorie One Piece d'un site. Renvoie tous les
     produits visibles (titre, URL, prix, dispo)."""
@@ -414,21 +706,43 @@ def scrape_category(session, site):
         if platform in PLATFORM_SELECTORS:
             sel = {**PLATFORM_SELECTORS[platform], **sel}
         else:
-            # Auto-détection : essaie chaque plateforme
+            # Auto-détection : essaie chaque plateforme dans l'ordre
+            # On choisit celle qui retourne le PLUS de produits (≥ 3 minimum
+            # pour éviter de matcher 1-2 éléments parasites comme un menu)
+            best_platform = None
+            best_count = 0
             for p in ["prestashop", "shopify", "woocommerce"]:
                 test = PLATFORM_SELECTORS[p]["product"]
-                if soup.select(test):
-                    sel = {**PLATFORM_SELECTORS[p], **sel}
-                    site["_detected_platform"] = p
-                    break
+                count = len(soup.select(test))
+                if count >= 3 and count > best_count:
+                    best_count = count
+                    best_platform = p
+            if best_platform:
+                sel = {**PLATFORM_SELECTORS[best_platform], **sel}
+                site["_detected_platform"] = best_platform
+            else:
+                # Dernier recours : fallback générique
+                generic_count = len(soup.select(PLATFORM_SELECTORS["generic"]["product"]))
+                if generic_count >= 3:
+                    sel = {**PLATFORM_SELECTORS["generic"], **sel}
+                    site["_detected_platform"] = "generic"
 
     product_sel = sel.get("product")
     if not product_sel or not soup.select(product_sel):
+        # ━━━ Fallback ultime : extraction par URLs distinctives ━━━
+        # Shopify : /products/, WooCommerce : /produit/, /product/
+        # Prestashop : URL avec ID-slug en path
+        results = _scrape_by_url_pattern(soup, url, site)
+        if results:
+            site["_detected_platform"] = "url-pattern"
+            log(f"  ↳ {site['name']}: extraction par URL pattern ({len(results)} candidat(s))", indent=2)
+            return results
         log(f"⚠️  {site['name']}: aucun produit détecté ({url})", indent=2)
         return []
 
     results = []
     skipped_oos = 0
+    skipped_accessory = 0
     for card in soup.select(product_sel)[:60]:
         title = text_of(card.select_one(sel.get("title", "h2, h3, .title, a")))
         link_el = card.select_one(sel.get("link", "a[href]"))
@@ -437,11 +751,16 @@ def scrape_category(session, site):
         avail = text_of(card.select_one(sel.get("availability"))) if sel.get("availability") else ""
         if not (title and href):
             continue
+        # Exclusion des accessoires (playmats, sleeves, classeurs, etc.)
+        # Ces produits ne sont pas l'intérêt principal du tracker.
+        if is_excluded_accessory(title):
+            skipped_accessory += 1
+            continue
         # Calcul du statut avec priorité : preorder > out > in
         # Un produit en précommande peut avoir un bouton "Épuisé" sur la liste
         # (parce qu'il n'est pas encore dispo immédiatement), mais le badge
         # "Précommande" ou "Disponible le X" doit primer.
-        is_pre = is_preorder(card, avail, title)
+        is_pre = is_preorder(card, avail, title, url=href or "")
         is_oos = is_out_of_stock(card, avail)
         if is_pre:
             status = "preorder"
@@ -466,6 +785,8 @@ def scrape_category(session, site):
         })
     if skipped_oos:
         log(f"({skipped_oos} produits en rupture détectés et suivis pour transitions)", indent=2)
+    if skipped_accessory:
+        log(f"({skipped_accessory} accessoires exclus : playmats/sleeves/classeurs)", indent=2)
     return results
 
 # ─────────────────── Cardmarket : référence prix ──────────────────────
@@ -1098,7 +1419,12 @@ def main():
     # ─── Étape 1 : scrape la page catégorie de chaque site UNE FOIS ───
     site_listings = {}
     for site_id, site in sites.items():
+        # Skip si site désactivé (enabled: false ou disabled: true)
         if not site.get("enabled", True):
+            log(f"⏸️  {site.get('name', site_id)} (désactivé)")
+            continue
+        if site.get("disabled"):
+            log(f"⏸️  {site.get('name', site_id)} (désactivé : {site.get('disabled_reason', 'manuel')})")
             continue
         if not site.get("category_url"):
             continue

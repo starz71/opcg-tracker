@@ -676,8 +676,10 @@ def _scrape_by_url_pattern(soup, base_url, site):
             "url": full_url,
             "price": price,
             "availability": avail,
+            "site": site.get("name", ""),
             "in_stock": status == "in",
             "out_of_stock": status == "out",
+            "is_oos": status == "out",
             "status": status,
             "product_type": ptype,
         })
@@ -787,6 +789,16 @@ def scrape_category(session, site):
         log(f"({skipped_oos} produits en rupture détectés et suivis pour transitions)", indent=2)
     if skipped_accessory:
         log(f"({skipped_accessory} accessoires exclus : playmats/sleeves/classeurs)", indent=2)
+
+    # Si on n'a rien extrait malgré que les sélecteurs aient matché, c'est que
+    # les sélecteurs ont matché du parasite (ex: sous-éléments d'une vraie card).
+    # On bascule sur le fallback URL-pattern.
+    if not results:
+        results = _scrape_by_url_pattern(soup, url, site)
+        if results:
+            site["_detected_platform"] = "url-pattern"
+            log(f"  ↳ {site['name']}: extraction par URL pattern ({len(results)} candidat(s))", indent=2)
+
     return results
 
 # ─────────────────── Cardmarket : référence prix ──────────────────────

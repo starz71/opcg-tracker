@@ -437,20 +437,38 @@ def detect_product_type(title):
 # Mots-clés d'accessoires à EXCLURE complètement de la surveillance.
 # Ces produits ne sont pas l'intérêt principal d'un acheteur de displays/boosters.
 ACCESSORY_EXCLUDE_KEYWORDS = [
-    # Tapis de jeu
-    "tapis de jeu", "tapis officiel", "playmat", "play mat", "playing mat",
-    # Pochettes
-    "sleeve", "pochette de carte", "pochette protege", "pochette protège",
-    "protège-carte", "protege-carte", "protège carte", "protege carte",
-    # Classeurs / range-cartes
-    "binder", "classeur", "range-cartes", "range cartes", "porte-cartes",
-    "porte cartes", "card binder", "album de cartes",
-    # Boîtes de rangement
-    "card case", "deck box", "deck case", "boite de rangement",
-    "boîte de rangement", "storage box", "rangement",
-    # Goodies divers
-    "card holder", "présentoir", "presentoir", "tin box",
+    # Tapis de jeu — toutes variantes FR/EN
+    "tapis de jeu", "tapis officiel", "tapis officiels",
+    "playmat", "play mat", "play-mat", "playmats",
+    "playing mat", "rubber mat", "rubber play mat",
+    # Pochettes / protège-cartes — traductions FR/EN, singulier ET pluriel
+    "sleeve", "sleeves", "card sleeve", "card sleeves",
+    "pochette de carte", "pochettes de carte", "pochettes de cartes",
+    "pochette protege", "pochettes protege",
+    "pochette protège", "pochettes protège",
+    "protège-carte", "protège-cartes", "protege-carte", "protege-cartes",
+    "protège carte", "protège cartes", "protege carte", "protege cartes",
+    "protections de carte", "protections de cartes", "protection de carte",
+    "protection de cartes",
+    # Classeurs / range-cartes / porte-cartes
+    "binder", "binders", "9-pocket binder", "9 pocket binder",
+    "classeur", "classeurs", "classeur officiel",
+    "range-cartes", "range cartes", "range-carte", "range carte",
+    "porte-cartes", "porte cartes", "porte-carte", "porte carte",
+    "card binder", "album de cartes", "album cartes",
+    # Boîtes de rangement / deck box
+    "card case", "card cases", "deck box", "deck-box", "deckbox",
+    "deck case", "deck cases",
+    "boite de rangement", "boîte de rangement", "boites de rangement",
+    "boîtes de rangement", "storage box", "storage boxes", "rangement",
+    # Goodies divers (pas le jeu lui-même)
+    "card holder", "card holders", "présentoir", "presentoir",
+    "tin box",  # /!\ "Mini-Tin" reste toléré (ce sont des produits jeu)
 ]
+
+
+# Mots-clés supplémentaires pour le filtre des alertes (alerts.yaml)
+# On exclut aussi les decks débutants/initiation par défaut.
 
 
 def is_excluded_accessory(title):
@@ -536,11 +554,50 @@ def _scrape_by_url_pattern(soup, base_url, site):
         re.compile(r"\.html?$.*[a-z0-9_\-]+\.html?$", re.I), # autres .html (Mystic Ambre, etc.)
     ]
 
+    # ━━━ Restreindre la zone de recherche au contenu principal ━━━
+    # Beaucoup de pages ont des liens produits dans le menu/sidebar/footer
+    # qui ne sont PAS dans la catégorie en cours (ex : "best-sellers", "à voir
+    # aussi", "menu nav"). On cherche d'abord dans une zone de contenu
+    # principal, et on retombe sur soup entier si rien n'est trouvé.
+    main_zones = []
+    for sel in ["main", "[role=main]", "section.products", "section.product-list",
+                ".collection", ".collection__products", "div.products",
+                "#main-content", "#content", "#products", ".category-products",
+                "[class*=collection-grid]", "[class*=product-list]",
+                "[class*=products-grid]"]:
+        try:
+            zones = soup.select(sel)
+        except Exception:
+            continue
+        for z in zones:
+            # On ignore les zones très petites (probablement pas des listes produits)
+            text_len = len(z.get_text(strip=True))
+            if text_len > 50:
+                main_zones.append(z)
+    # Si on a au moins 1 zone de contenu, on cherche dans ces zones
+    # (la plus grande). Sinon, on cherche dans tout le document.
+    search_root = soup
+    if main_zones:
+        # On prend la zone qui contient le plus de liens produits matchant les
+        # patterns (ça filtre les sidebars qui ont aussi quelques produits)
+        best_zone, best_count = None, 0
+        for zone in main_zones:
+            count = sum(
+                1 for a in zone.find_all("a", href=True)
+                if any(p.search(urlparse(urljoin(base_url, a.get("href", ""))).path)
+                       for p in PATTERNS)
+            )
+            if count > best_count:
+                best_count = count
+                best_zone = zone
+        if best_zone and best_count >= 3:
+            search_root = best_zone
+
     # Collecte des liens candidats (uniques par URL) — quand 2 <a> pointent
     # vers la même URL (cas fréquent : un <a> autour de l'image + un <a>
     # autour du titre), on garde celui qui a le titre le plus pertinent.
     candidates = {}  # url → balise <a>
-    for a in soup.find_all("a", href=True):
+    for a in search_root.find_all("a", href=True):
         href = a.get("href", "")
         if not href:
             continue
@@ -573,6 +630,39 @@ def _scrape_by_url_pattern(soup, base_url, site):
                 candidates[clean_url] = a
         else:
             candidates[clean_url] = a
+
+    # ━━━ Filtre One Piece : ne garder que les URLs qui ressemblent à des
+    # produits One Piece. Cela évite de capturer les liens du menu ou des
+    # widgets "à voir aussi" qui pointent vers d'autres TCG.
+    OP_URL_HINTS = [
+        "one-piece", "onepiece", "one_piece",
+        "op-01", "op-02", "op-03", "op-04", "op-05", "op-06", "op-07",
+        "op-08", "op-09", "op-10", "op-11", "op-12", "op-13", "op-14",
+        "op-15", "op-16", "op-17", "op-18", "op-19", "op-20",
+        "op01", "op02", "op03", "op04", "op05", "op06", "op07", "op08",
+        "op09", "op10", "op11", "op12", "op13", "op14", "op15", "op16",
+        "op17", "op18", "op19", "op20",
+        "eb-01", "eb-02", "eb-03", "eb-04", "eb-05",
+        "eb01", "eb02", "eb03", "eb04", "eb05",
+        "prb-01", "prb-02", "prb01", "prb02",
+        "df-01", "df-02", "df-03", "df01", "df02", "df03",
+        "luffy", "zoro", "nami", "sanji", "chopper", "robin",
+        "ace", "shanks", "kaido", "newgate",
+        "premium-card-collection", "ichiban-kuji",
+        "memorial-collection", "kami-s-island", "kami-island",
+    ]
+
+    # Filtre les candidats : on garde ceux dont l'URL contient un indice OP
+    op_candidates = {}
+    for url, a in candidates.items():
+        url_low = url.lower()
+        if any(hint in url_low for hint in OP_URL_HINTS):
+            op_candidates[url] = a
+    # Si on a trouvé au moins 3 candidats OP, on ne garde QUE ceux-là.
+    # Sinon, on garde tous les candidats (le site n'a peut-être pas le
+    # mot-clé OP dans l'URL même pour les produits OP).
+    if len(op_candidates) >= 3:
+        candidates = op_candidates
 
     if len(candidates) < 3:
         return []
@@ -790,14 +880,17 @@ def scrape_category(session, site):
     if skipped_accessory:
         log(f"({skipped_accessory} accessoires exclus : playmats/sleeves/classeurs)", indent=2)
 
-    # Si on n'a rien extrait malgré que les sélecteurs aient matché, c'est que
-    # les sélecteurs ont matché du parasite (ex: sous-éléments d'une vraie card).
-    # On bascule sur le fallback URL-pattern.
-    if not results:
-        results = _scrape_by_url_pattern(soup, url, site)
-        if results:
-            site["_detected_platform"] = "url-pattern"
-            log(f"  ↳ {site['name']}: extraction par URL pattern ({len(results)} candidat(s))", indent=2)
+    # ━━━ Stratégie hybride : on essaie aussi le fallback URL-pattern et on
+    # garde les résultats les plus nombreux. Cela permet de fixer les sites
+    # où nos sélecteurs CSS matchent du parasite (sous-éléments d'une vraie
+    # card), mais où l'extraction par URL distinctive trouve les vrais
+    # produits. Compromis pour la stabilité : on n'écrase les résultats CSS
+    # que si l'URL-pattern en trouve nettement plus (>1.5x plus).
+    url_pattern_results = _scrape_by_url_pattern(soup, url, site)
+    if url_pattern_results and len(url_pattern_results) > len(results) * 1.5:
+        site["_detected_platform"] = "url-pattern"
+        log(f"  ↳ {site['name']}: extraction par URL pattern ({len(url_pattern_results)} candidat(s), au lieu de {len(results)} via CSS)", indent=2)
+        return url_pattern_results
 
     return results
 

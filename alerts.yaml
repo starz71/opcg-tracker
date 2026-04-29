@@ -372,14 +372,58 @@ alerts:
 
   - name: "Nouveautés OP TCG (FR/EN)"
     enabled: true
-    # Pas de keywords = on accepte tous les titres
+    # Le titre du produit DOIT contenir au moins UN de ces mots-clés
+    # (sinon : faux positif type "menu produit hors One Piece"). On accepte
+    # plusieurs orthographes et toutes les variantes de noms de set OPCG.
+    keywords: [
+      "one piece", "one-piece", "onepiece",
+      "OP-01", "OP-02", "OP-03", "OP-04", "OP-05", "OP-06", "OP-07",
+      "OP-08", "OP-09", "OP-10", "OP-11", "OP-12", "OP-13", "OP-14",
+      "OP-15", "OP-16", "OP-17", "OP-18", "OP-19", "OP-20",
+      "OP01", "OP02", "OP03", "OP04", "OP05", "OP06", "OP07", "OP08",
+      "OP09", "OP10", "OP11", "OP12", "OP13", "OP14", "OP15", "OP16",
+      "OP17", "OP18", "OP19", "OP20",
+      "OP14-EB", "OP15-EB", "OP16-EB", "OP17-EB",
+      "EB-01", "EB-02", "EB-03", "EB-04", "EB-05",
+      "EB01", "EB02", "EB03", "EB04", "EB05",
+      "PRB-01", "PRB-02", "PRB-03", "PRB01", "PRB02", "PRB03",
+      "DF-01", "DF-02", "DF-03", "DF-04", "DF01", "DF02", "DF03", "DF04",
+      "luffy", "zoro", "nami", "sanji", "chopper", "robin", "franky",
+      "brook", "jinbe", "ace", "sabo", "garp",
+      "shanks", "kaido", "blackbeard", "newgate", "katakuri",
+      "straw hat", "chapeau de paille", "azure sea", "azur",
+      "memorial collection", "best selection",
+      "ichiban kuji", "premium card collection",
+      "celebration pack", "eternal", "anime 25th",
+      "kami's island", "dieu", "héritage du maître", "heritage du maitre",
+      "successeurs", "carrying on his will",
+      "paramount war", "guerre au sommet",
+      "egghead", "egg head", "wano", "thriller bark",
+      "punk hazard", "sang royal", "royal blood",
+      "des poings vifs", "wings of the captain",
+      "pillars of strength", "kingdoms of intrigue",
+      "twin champions", "starter deck",
+      "premier chapitre", "ascension", "terres d'encre",
+      "the worlds strongest", "world's strongest",
+      "memorial", "anniversary", "live action",
+      "tournament", "championship", "promo", "promotional",
+    ]
+    # Pas de keywords = on accepte tous les titres (désactivé : trop de faux positifs)
     exclude: [
-      # Sleeves / pochettes / protections
-      "sleeve", "sleeves", "pochette", "pochettes",
-      "protège-carte", "protege-carte", "protege carte", "card sleeve",
+      # Sleeves / pochettes / protections — toutes variantes FR/EN
+      "sleeve", "sleeves", "card sleeve", "card sleeves",
+      "pochette", "pochettes",
+      "protège-carte", "protège-cartes", "protege-carte", "protege-cartes",
+      "protège carte", "protège cartes", "protege carte", "protege cartes",
+      "protections de carte", "protections de cartes", "protection de carte",
+      "protection de cartes",
       # Starter decks (sets ST-XX, peuvent inclure les éditions spéciales)
-      "starter deck", "starter-deck", "starter pack",
+      "starter deck", "starter-deck", "starter pack", "starter packs",
       "deck de démarrage", "deck de demarrage",
+      "deck débutant", "deck-débutant", "deck debutant", "deck-debutant",
+      "deck pour débutant", "deck pour debutant",
+      "deck pour débutants", "deck pour debutants",
+      "deck d'initiation", "deck initiation",
       "ST-01", "ST-02", "ST-03", "ST-04", "ST-05", "ST-06", "ST-07",
       "ST-08", "ST-09", "ST-10", "ST-11", "ST-12", "ST-13", "ST-14",
       "ST-15", "ST-16", "ST-17", "ST-18", "ST-19", "ST-20", "ST-21",
@@ -390,10 +434,14 @@ alerts:
       "vendue à l'unité", "vendu à l'unité", "vendu a l'unite",
       "carte seule", "carte alt art", "alt-art card",
       # Accessoires
-      "playmat", "tapis de jeu", "tapis jeu",
+      "playmat", "playmats", "tapis de jeu", "tapis jeu",
       "deck box", "deck-box", "deckbox",
-      "binder", "classeur", "classeurs",
-      "dice", "tokens"
+      "binder", "binders", "classeur", "classeurs",
+      "9-pocket binder", "9 pocket binder",
+      "porte-cartes", "porte cartes", "range-cartes", "range cartes",
+      "card holder", "card holders", "présentoir", "presentoir",
+      "boite de rangement", "boîte de rangement",
+      "dice", "dés", "tokens", "jetons"
     ]
     sites: [parkage, baron_collections, le_coin_des_barons, lesgentlemendujeu,
             ludisphere, destocktcg, cardshunter, masterset, guizette,

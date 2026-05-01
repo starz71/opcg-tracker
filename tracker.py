@@ -188,6 +188,40 @@ def save_json(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 # ───────────────────────────── HTTP ───────────────────────────────────
+# ━━━ Sites en régression à debugger (verbose=True pour ces sites) ━━━
+# Activer le mode verbose ici pour voir les logs [debug] dans les Actions.
+DEBUG_SITES = {
+    "Le Coin des Barons", "Baron Collections", "Les Gentlemen du Jeu",
+    "Cards Hunter", "Masterset", "Guizette Family",
+    "Ludisphère", "Bacchusia", "BCD Jeux", "Tofopolis", "Investcollect",
+    "Nippon TCG", "Japon Demande", "Japan & Co", "Jump Ichiban",
+    "Mystic Ambre", "Trading Cards XXX", "Maxi Rêves", "Flevance",
+    "Maison de la Presse", "Le Repaire du Collectionneur", "Japan Resell",
+    "Goupiya", "Smartoys", "Esprit Jeu", "Poke Geek", "Play-In",
+}
+
+
+def make_soup(text, base_url=None, verbose=False):
+    """Parse un HTML avec lxml, et en fallback html.parser si lxml retourne
+    un arbre vide ou avec très peu de liens (cas du HTML malformé que lxml
+    rejette silencieusement). Renvoie un BeautifulSoup.
+
+    Si verbose=True, log la stratégie retenue."""
+    soup = BeautifulSoup(text, "lxml")
+    n_links = len(soup.find_all("a"))
+    if n_links < 5 and len(text) > 5000:
+        # lxml a probablement échoué silencieusement : peu de liens dans un
+        # HTML conséquent. On retente avec html.parser (plus permissif).
+        soup_alt = BeautifulSoup(text, "html.parser")
+        n_links_alt = len(soup_alt.find_all("a"))
+        if n_links_alt > n_links:
+            if verbose:
+                log(f"      [parser] lxml→{n_links} liens, html.parser→{n_links_alt} liens, "
+                    f"on garde html.parser", indent=2)
+            return soup_alt
+    return soup
+
+
 def make_session():
     """Crée une session HTTP. Utilise cloudscraper si disponible (contourne
     la plupart des protections Cloudflare), sinon requests classique."""
@@ -797,6 +831,25 @@ def _scrape_by_url_pattern(soup, base_url, site, verbose=False):
     _log(f"HTML : {len(str(soup))//1024} KB, {total_links} liens total, "
          f"{total_pattern_matches} matchent un pattern produit")
 
+    # Si 0 liens, on dump un échantillon du HTML pour comprendre ce qui est reçu
+    if total_links == 0:
+        html_str = str(soup)
+        # Premiers 300 chars
+        sample_start = html_str[:300].replace('\n', ' ')[:300]
+        _log(f"HTML start : {sample_start}")
+        # Recherche de mots-clés indicatifs
+        if "cloudflare" in html_str.lower():
+            _log(f"⚠️  Cloudflare détecté dans le HTML")
+        if "challenge" in html_str.lower() or "captcha" in html_str.lower():
+            _log(f"⚠️  Challenge/Captcha détecté dans le HTML")
+        if "javascript" in html_str.lower() and "required" in html_str.lower():
+            _log(f"⚠️  Page nécessitant du JavaScript")
+        # Dump des 200 chars du milieu pour voir le contenu
+        if len(html_str) > 1000:
+            mid = len(html_str) // 2
+            sample_mid = html_str[mid:mid+200].replace('\n', ' ')[:200]
+            _log(f"HTML middle : {sample_mid}")
+
     # ━━━ Restreindre la zone de recherche au contenu principal ━━━
     # Beaucoup de pages ont des liens produits dans le menu/sidebar/footer
     # qui ne sont PAS dans la catégorie en cours (ex : "best-sellers", "à voir
@@ -1122,7 +1175,9 @@ def scrape_category(session, site):
         log(f"⚠️  {site['name']}: {ex}", indent=2)
         return []
 
-    soup = BeautifulSoup(r.text, "lxml")
+    # On utilise make_soup qui essaie lxml puis html.parser en fallback
+    # (utile pour les sites au HTML malformé que lxml rejette silencieusement)
+    soup = make_soup(r.text, verbose=(site.get("name") in DEBUG_SITES))
 
     # Priorité : sélecteurs explicites > plateforme déclarée > auto-détection
     sel = (site.get("selectors") or {}).copy()
@@ -1152,16 +1207,6 @@ def scrape_category(session, site):
                     sel = {**PLATFORM_SELECTORS["generic"], **sel}
                     site["_detected_platform"] = "generic"
 
-    # Liste des sites en régression à debugger (verbose=True pour ces sites)
-    DEBUG_SITES = {
-        "Le Coin des Barons", "Baron Collections", "Les Gentlemen du Jeu",
-        "Cards Hunter", "Masterset", "Guizette Family",
-        "Ludisphère", "Bacchusia", "BCD Jeux", "Tofopolis", "Investcollect",
-        "Nippon TCG", "Japon Demande", "Japan & Co", "Jump Ichiban",
-        "Mystic Ambre", "Trading Cards XXX", "Maxi Rêves", "Flevance",
-        "Maison de la Presse", "Le Repaire du Collectionneur", "Japan Resell",
-        "Goupiya", "Smartoys", "Esprit Jeu", "Poke Geek", "Play-In",
-    }
     site_debug = site.get("name") in DEBUG_SITES
 
     product_sel = sel.get("product")

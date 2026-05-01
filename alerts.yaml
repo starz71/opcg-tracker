@@ -417,6 +417,9 @@ alerts:
       "pochette", "pochettes",
       "protège-carte", "protège-cartes", "protege-carte", "protege-cartes",
       "protège carte", "protège cartes", "protege carte", "protege cartes",
+      # Variante avec S à 'protèges' (faute fréquente mais répandue)
+      "protèges-carte", "protèges-cartes", "proteges-carte", "proteges-cartes",
+      "protèges carte", "protèges cartes", "proteges carte", "proteges cartes",
       "protections de carte", "protections de cartes", "protection de carte",
       "protection de cartes",
       # Variantes courtes : "protections", "protection", "protège", "protege"

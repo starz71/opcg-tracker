@@ -1790,9 +1790,266 @@ def _build_digest_message_text(alert_name, all_listings, n_new=0, last_update=No
     return messages  # liste de strings, pas un seul string
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# DIGEST PAR CATÉGORIE (5 topics : Booster/DoublePack/Display/Case/Autres)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Configuration des 5 catégories cibles. Chaque catégorie a :
+#  - "key" : clé interne (sert à stocker les message_ids dans state)
+#  - "label" : nom court pour l'affichage dans les logs
+#  - "title_emoji" : émoji + titre du message Telegram
+#  - "matching_types" : liste des product_type qui tombent dans cette catégorie
+#  - "secret_key" : nom du secret GitHub à lire (UPPERCASE auto)
+#
+# La catégorie "_autres" sert de fourre-tout pour tout produit dont le
+# product_type ne match aucune autre catégorie (ex: starter, box, ichiban...).
+DIGEST_CATEGORIES = [
+    {
+        "key": "display",
+        "label": "Displays",
+        "title_emoji": "📦",
+        "title_text": "DISPLAYS",
+        "matching_types": ["display"],
+        "secret_key": "telegram_topic_display",
+    },
+    {
+        "key": "case",
+        "label": "Cases",
+        "title_emoji": "📚",
+        "title_text": "CASES",
+        "matching_types": ["case"],
+        "secret_key": "telegram_topic_case",
+    },
+    {
+        "key": "booster",
+        "label": "Boosters",
+        "title_emoji": "🎴",
+        "title_text": "BOOSTERS",
+        "matching_types": ["booster"],
+        "secret_key": "telegram_topic_booster",
+    },
+    {
+        "key": "double_pack",
+        "label": "Double Packs",
+        "title_emoji": "🎴",
+        "title_text": "DOUBLE PACKS",
+        "matching_types": ["double_pack", "triple_pack"],
+        "secret_key": "telegram_topic_double_pack",
+    },
+    {
+        "key": "_autres",
+        "label": "Autres",
+        "title_emoji": "📌",
+        "title_text": "AUTRES PRODUITS",
+        "matching_types": ["starter", "box", "other"],
+        "secret_key": "telegram_topic_autres",
+    },
+]
+
+
+def _classify_listing_for_digest(listing):
+    """Renvoie la 'key' de la catégorie où ce listing doit aller (display,
+    case, booster, double_pack, ou _autres). Utilise la même logique que
+    group_listings_for_digest pour la cohérence."""
+    title = listing.get("title", "")
+
+    # Détection booster double-pack via le titre (priorité absolue)
+    tlower = title.lower()
+    if any(kw in tlower for kw in ["double pack", "double-pack", "doublepack",
+                                      "pack de 2 booster", "pack 2 booster",
+                                      "lot de 2 booster", "double booster",
+                                      "triple pack", "triple-pack",
+                                      "pack de 3 booster"]):
+        return "double_pack"
+
+    # Re-détection du type produit (titre → fiable)
+    title_ptype = detect_product_type(title)
+    scraper_ptype = listing.get("product_type")
+    if title_ptype != "other":
+        ptype = title_ptype
+    elif scraper_ptype and scraper_ptype != "other":
+        ptype = scraper_ptype
+    else:
+        ptype = "other"
+
+    # Mapping vers la catégorie digest
+    for cat in DIGEST_CATEGORIES:
+        if ptype in cat["matching_types"]:
+            return cat["key"]
+    return "_autres"
+
+
+def _send_digest_to_topic(config, alert, listings, new_urls, state,
+                           state_subkey, topic_thread_id, title_override=None):
+    """Envoie un digest pour UNE catégorie dans UN topic Telegram.
+    Logique : édition en place si possible, sinon suppression + ré-envoi.
+
+    `state_subkey` : sous-clé dans state["digests_per_cat"] pour persister
+                     les message_ids de cette catégorie.
+    `topic_thread_id` : ID du topic Telegram cible (peut être None).
+    `title_override` : titre custom à utiliser à la place de alert['name'].
+    Renvoie True si succès, False sinon.
+    """
+    n = config.get("notifications", {})
+    if not listings:
+        # Pas de produits dans cette catégorie : si on avait un message
+        # précédent, on le supprime (catégorie devenue vide)
+        digests = state.setdefault("digests_per_cat", {}) if state is not None else {}
+        digest_info = digests.get(state_subkey, {}) if state_subkey else {}
+        prev_msg_ids = digest_info.get("message_ids", [])
+        if prev_msg_ids:
+            tg_token = env_or(n, "telegram_bot_token")
+            tg_chat = env_or(n, "telegram_chat_id")
+            if tg_token and tg_chat:
+                for old_id in prev_msg_ids:
+                    delete_telegram_message(tg_token, tg_chat, old_id)
+                digests.pop(state_subkey, None)
+                log(f"    🗑️  {state_subkey}: catégorie vidée, ancien message supprimé", indent=2)
+        return True  # Pas une erreur, juste rien à faire
+
+    # Marquer les nouveaux produits avec un flag _is_new
+    new_urls = new_urls or set()
+    for listing in listings:
+        listing["_is_new"] = listing.get("url") in new_urls
+
+    n_new = sum(1 for l in listings if l.get("_is_new"))
+    last_update = datetime.now(timezone.utc)
+
+    messages = _build_digest_message_text(
+        alert_name=title_override or alert.get("name", "Alerte"),
+        all_listings=listings,
+        n_new=n_new,
+        last_update=last_update,
+    )
+    if not messages:
+        return False
+
+    # Récupérer les IDs persistants pour cette sous-clé
+    digests = state.setdefault("digests_per_cat", {}) if state is not None else {}
+    digest_info = digests.get(state_subkey, {}) if state_subkey else {}
+    prev_msg_ids = digest_info.get("message_ids", [])
+
+    tg_token = env_or(n, "telegram_bot_token")
+    tg_chat = env_or(n, "telegram_chat_id")
+    if not tg_token or not tg_chat:
+        log(f"    (telegram non configuré, {state_subkey} non envoyé)", indent=2)
+        return False
+
+    # Stratégie : édition si même nombre de messages et pas de nouveauté
+    can_edit_in_place = (len(prev_msg_ids) == len(messages) and n_new == 0)
+    if can_edit_in_place and prev_msg_ids:
+        all_ok = True
+        for prev_id, md in zip(prev_msg_ids, messages):
+            ok = edit_telegram_message(tg_token, tg_chat, prev_id, md)
+            if not ok:
+                all_ok = False
+                break
+        if all_ok:
+            digests[state_subkey] = {
+                "message_ids": prev_msg_ids,
+                "last_update": last_update.isoformat(),
+                "n_products": len(listings),
+                "thread_id": topic_thread_id,
+            }
+            log(f"    ✏️  {state_subkey}: digest édité (silencieux) — {len(listings)} produit(s)", indent=2)
+            return True
+        else:
+            log(f"    (édition impossible pour {state_subkey}, ré-envoi)", indent=2)
+
+    # Suppression des anciens
+    for old_id in prev_msg_ids:
+        delete_telegram_message(tg_token, tg_chat, old_id)
+
+    # Envoi des nouveaux
+    silent = (n_new == 0)
+    new_ids = []
+    for idx, md in enumerate(messages):
+        first_silent = silent or (idx > 0)
+        msg_id = notify_telegram(tg_token, tg_chat, md,
+                                  thread_id=topic_thread_id,
+                                  disable_notification=first_silent)
+        if msg_id:
+            new_ids.append(msg_id)
+        else:
+            log(f"    ⚠️  Échec envoi {state_subkey} message {idx+1}/{len(messages)}", indent=2)
+
+    if new_ids:
+        digests[state_subkey] = {
+            "message_ids": new_ids,
+            "last_update": last_update.isoformat(),
+            "n_products": len(listings),
+            "thread_id": topic_thread_id,
+        }
+        label = "🚨 sonore" if not silent else "🔕 silencieux"
+        log(f"    📨 {state_subkey} {label} ({n_new} nouveau{'x' if n_new > 1 else ''}) — {len(listings)} produit(s)", indent=2)
+        return True
+    else:
+        log(f"    ⚠️  Échec envoi {state_subkey}", indent=2)
+        return False
+
+
+def send_digest_per_category(config, alert, all_in_stock_listings, new_urls=None,
+                               state=None, alert_key=None):
+    """Envoie un digest séparé par catégorie de produit (5 topics) :
+    Display, Case, Booster, Double Pack, Autres.
+
+    Chaque catégorie a son propre topic Telegram et son propre message permanent.
+    Si un topic n'est pas configuré (secret manquant), la catégorie est skip.
+    """
+    n = config.get("notifications", {})
+    if not all_in_stock_listings:
+        log(f"  (digest vide pour {alert_key})", indent=2)
+        return False
+
+    # Vérifier que le bot Telegram est configuré
+    tg_token = env_or(n, "telegram_bot_token")
+    tg_chat = env_or(n, "telegram_chat_id")
+    if not tg_token or not tg_chat:
+        log(f"  (telegram non configuré, digest non envoyé)", indent=2)
+        return False
+
+    # Classer chaque listing dans une catégorie
+    by_category = {cat["key"]: [] for cat in DIGEST_CATEGORIES}
+    for listing in all_in_stock_listings:
+        cat_key = _classify_listing_for_digest(listing)
+        by_category.setdefault(cat_key, []).append(listing)
+
+    # Envoi de chaque catégorie dans son topic
+    fired_count = 0
+    for cat in DIGEST_CATEGORIES:
+        cat_listings = by_category.get(cat["key"], [])
+        topic_thread_id = env_or(n, cat["secret_key"])
+
+        if not topic_thread_id:
+            if cat_listings:
+                # On a des produits mais pas de topic configuré : warning
+                log(f"  ⚠️  {cat['label']}: {len(cat_listings)} produit(s) mais "
+                    f"secret '{cat['secret_key'].upper()}' non défini, skip", indent=2)
+            continue
+
+        # Sous-clé state pour persister les IDs : "alert_key::cat_key"
+        state_subkey = f"{alert_key}::{cat['key']}"
+        # Titre custom : "📦 DISPLAYS — Nouveautés OP TCG (FR/EN)"
+        custom_title = f"{cat['title_emoji']} {cat['title_text']} — {alert.get('name', 'Alerte')}"
+
+        ok = _send_digest_to_topic(
+            config, alert, cat_listings, new_urls, state,
+            state_subkey=state_subkey,
+            topic_thread_id=topic_thread_id,
+            title_override=custom_title,
+        )
+        if ok:
+            fired_count += 1
+
+    log(f"  📊 Digests par catégorie : {fired_count} catégorie(s) traitée(s)", indent=2)
+    return fired_count > 0
+
+
 def send_digest_notification(config, alert, all_in_stock_listings, new_urls=None,
                                state=None, alert_key=None):
-    """Envoie ou met à jour le message digest pour `alert`.
+    """[LEGACY] Envoie ou met à jour le message digest GLOBAL pour `alert`
+    sur le topic 'products' unique. Désactivé par défaut au profit de
+    send_digest_per_category. Conservé pour fallback éventuel.
 
     `all_in_stock_listings` : tous les produits en stock + précommandes
                                qui matchent l'alerte (le message complet)
@@ -2129,11 +2386,12 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
         if listing.get("url"):
             new_urls.add(listing["url"])
 
-    # ━━━ Envoi du digest permanent (édition silencieuse ou nouveau message si nouveautés) ━━━
-    # On envoie un digest même s'il n'y a pas de nouveauté (MAJ silencieuse de l'état)
+    # ━━━ Envoi du digest permanent par CATÉGORIE (5 topics : Display, Case, Booster, Double Pack, Autres) ━━━
+    # Chaque catégorie a son propre topic Telegram et son propre message permanent.
+    # Envoi silencieux si pas de nouveauté, sonore sinon.
     if all_in_stock_listings:
         alert_key = alert.get("name", "default")
-        digest_sent = send_digest_notification(
+        digest_sent = send_digest_per_category(
             config, alert, all_in_stock_listings,
             new_urls=new_urls,
             state=state,
@@ -2144,8 +2402,6 @@ def process_alert(config, alert, listings, state, history, now_iso, get_cm_calla
             seen[akey]["last_notified"] = now_iso
         # Compte le digest comme une notif (s'il a été envoyé)
         if digest_sent:
-            # Si y'avait des nouveautés ET qu'on les a déjà comptées dans `fired`,
-            # on n'en rajoute pas. Sinon (édition silencieuse), on compte 1.
             if not digest_buffer:
                 fired += 1
 

@@ -419,6 +419,29 @@ alerts:
       "protège carte", "protège cartes", "protege carte", "protege cartes",
       "protections de carte", "protections de cartes", "protection de carte",
       "protection de cartes",
+      # Variantes courtes : "protections", "protection", "protège", "protege"
+      # (peut être suspect mais c'est ce qui passe le plus souvent)
+      "protections one piece", "protection one piece",
+      "protège one piece", "protege one piece",
+      "protègent", "protegent",
+      "card protector", "card protectors", "protectors",
+      # Variantes anglaises courantes
+      "trading card sleeve", "trading card sleeves",
+      "matte sleeve", "matte sleeves",
+      "premium sleeve", "premium sleeves",
+      "standard sleeve", "standard sleeves",
+      "official sleeve", "official sleeves",
+      "bandai sleeve", "bandai sleeves",
+      "etui de cartes", "étui de cartes", "etui carte", "étui carte",
+      # Tapis (toutes variantes)
+      "tapis de jeu", "tapis officiel", "tapis officiels",
+      "tapis one piece", "tapis bandai",
+      "playmat", "playmats", "play mat", "play-mat", "play-mats",
+      "playing mat", "rubber mat", "rubber play mat",
+      # Deck box (toutes variantes)
+      "deck box", "deck-box", "deckbox",
+      "deck case", "deck cases",
+      "boite de deck", "boîte de deck",
       # Starter decks (sets ST-XX, peuvent inclure les éditions spéciales)
       "starter deck", "starter-deck", "starter pack", "starter packs",
       "deck de démarrage", "deck de demarrage",
@@ -447,9 +470,7 @@ alerts:
       "bgs 9", "bgs 10", "bgs-9", "bgs-10", "bgs 9.5",
       "ccc 9", "ccc 10", "ccc-9", "ccc-10",
       "mint 9", "mint 10", "gem mint",
-      # Accessoires
-      "playmat", "playmats", "tapis de jeu", "tapis jeu",
-      "deck box", "deck-box", "deckbox",
+      # Accessoires divers (les sleeves/playmats/deckbox sont déjà filtrés plus haut)
       "binder", "binders", "classeur", "classeurs",
       "9-pocket binder", "9 pocket binder",
       "porte-cartes", "porte cartes", "range-cartes", "range cartes",

@@ -464,16 +464,25 @@ def detect_product_type(title):
     # (Ultrajeux notamment). Ex: "OP14 Les Sept de la Mer d'Azur".
     # On ne fait ça que si on a un set valide ET que le titre n'a aucun
     # mot disqualifiant (display, box, coffret, starter, etc.).
-    has_set_code = bool(re.search(
-        r"\b(op|eb|prb|df|st|ac|ib)\s*-?\s*\d{1,2}\b", t
+    # Les codes AC-XX (Admirable Collection), IB-XX (Illustration Box),
+    # et les "brique de lait" / "milk box" ne sont PAS des boosters.
+    has_main_set_code = bool(re.search(
+        r"\b(op|eb|prb|df)\s*-?\s*\d{1,2}\b", t
     ))
     has_disqualifier = any(w in t for w in [
         "display", "box", "coffret", "starter", "deck",
         "boîte", "boite", "case", "carton",
         "tin", "playmat", "tapis", "sleeve", "binder",
         "lot de", "set vol",
+        "brique de lait", "milk box", "milk-box", "milkbox",
+        "admirable collection", "illustration box",
+        # Codes "produits spéciaux" qui ne sont pas des boosters
+        "ac-01", "ac-02", "ac-03", "ac-04", "ac-05",
+        "ac01", "ac02", "ac03", "ac04", "ac05",
+        "ib-01", "ib-02", "ib-03", "ib-04", "ib-05", "ib-06", "ib-07",
+        "ib01", "ib02", "ib03", "ib04", "ib05", "ib06", "ib07",
     ])
-    if has_set_code and not has_disqualifier:
+    if has_main_set_code and not has_disqualifier:
         return "booster"
     return "other"
 
@@ -735,18 +744,24 @@ def search_site(session, site, query):
     return results
 
 # ───────────────────────── Page catégorie ─────────────────────────────
-def _scrape_by_url_pattern(soup, base_url, site):
+def _scrape_by_url_pattern(soup, base_url, site, verbose=False):
     """Fallback ultime : extrait les produits en cherchant les liens qui
     correspondent à des URLs de fiches produit, peu importe les classes CSS.
 
     Détecte automatiquement le pattern d'URL (Shopify /products/, WooCommerce
     /produit/ ou /product/, Prestashop /XXX-slug). Pour chaque lien trouvé,
-    on remonte au conteneur parent qui inclut titre + prix + image."""
+    on remonte au conteneur parent qui inclut titre + prix + image.
+
+    Si `verbose=True`, on log les étapes intermédiaires pour debug."""
     from urllib.parse import urlparse
 
     # Normalisation : on travaille avec le path du domaine du site
     base_parsed = urlparse(base_url)
     base_host = base_parsed.netloc
+
+    def _log(msg):
+        if verbose:
+            log(f"      [debug] {msg}", indent=2)
 
     # Patterns de fiches produit dans l'URL (insensible à la casse)
     PATTERNS = [
@@ -771,6 +786,16 @@ def _scrape_by_url_pattern(soup, base_url, site):
         re.compile(r"/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]{20,}/?$", re.I),
         re.compile(r"\.html?$.*[a-z0-9_\-]+\.html?$", re.I), # autres .html (Mystic Ambre, etc.)
     ]
+
+    # Stats globales pour debug
+    total_links = len(soup.find_all("a", href=True))
+    total_pattern_matches = sum(
+        1 for a in soup.find_all("a", href=True)
+        if any(p.search(urlparse(urljoin(base_url, a.get("href", ""))).path)
+               for p in PATTERNS)
+    )
+    _log(f"HTML : {len(str(soup))//1024} KB, {total_links} liens total, "
+         f"{total_pattern_matches} matchent un pattern produit")
 
     # ━━━ Restreindre la zone de recherche au contenu principal ━━━
     # Beaucoup de pages ont des liens produits dans le menu/sidebar/footer
@@ -808,8 +833,14 @@ def _scrape_by_url_pattern(soup, base_url, site):
             if count > best_count:
                 best_count = count
                 best_zone = zone
+        _log(f"Zone main : {len(main_zones)} candidates, meilleure = {best_count} produits")
         if best_zone and best_count >= 3:
             search_root = best_zone
+            _log(f"→ utilisation zone main restreinte")
+        else:
+            _log(f"→ recherche dans soup entier (zone main < 3 produits)")
+    else:
+        _log(f"Zone main : aucune zone trouvée, recherche dans soup entier")
 
     # Collecte des liens candidats (uniques par URL) — quand 2 <a> pointent
     # vers la même URL (cas fréquent : un <a> autour de l'image + un <a>
@@ -902,11 +933,15 @@ def _scrape_by_url_pattern(soup, base_url, site):
     # Si on a trouvé au moins 3 candidats OP, on ne garde QUE ceux-là.
     # Sinon, on garde tous les candidats (le site n'a peut-être pas le
     # mot-clé OP dans l'URL même pour les produits OP).
+    _log(f"Candidats : {len(candidates)} total, {len(op_candidates)} avec hint OP")
     if len(op_candidates) >= 3:
         candidates = op_candidates
+        _log(f"→ filtrage strict OP appliqué")
 
     if len(candidates) < 3:
+        _log(f"→ ABANDON : seulement {len(candidates)} candidat(s) (seuil minimum 3)")
         return []
+    _log(f"→ extraction de {len(candidates)} candidat(s)")
 
     # Extraction : pour chaque lien, remonter au plus petit conteneur "produit"
     # (li, article, ou div qui contient image + texte + prix éventuel)
@@ -1117,12 +1152,24 @@ def scrape_category(session, site):
                     sel = {**PLATFORM_SELECTORS["generic"], **sel}
                     site["_detected_platform"] = "generic"
 
+    # Liste des sites en régression à debugger (verbose=True pour ces sites)
+    DEBUG_SITES = {
+        "Le Coin des Barons", "Baron Collections", "Les Gentlemen du Jeu",
+        "Cards Hunter", "Masterset", "Guizette Family",
+        "Ludisphère", "Bacchusia", "BCD Jeux", "Tofopolis", "Investcollect",
+        "Nippon TCG", "Japon Demande", "Japan & Co", "Jump Ichiban",
+        "Mystic Ambre", "Trading Cards XXX", "Maxi Rêves", "Flevance",
+        "Maison de la Presse", "Le Repaire du Collectionneur", "Japan Resell",
+        "Goupiya", "Smartoys", "Esprit Jeu", "Poke Geek", "Play-In",
+    }
+    site_debug = site.get("name") in DEBUG_SITES
+
     product_sel = sel.get("product")
     if not product_sel or not soup.select(product_sel):
         # ━━━ Fallback ultime : extraction par URLs distinctives ━━━
         # Shopify : /products/, WooCommerce : /produit/, /product/
         # Prestashop : URL avec ID-slug en path
-        results = _scrape_by_url_pattern(soup, url, site)
+        results = _scrape_by_url_pattern(soup, url, site, verbose=site_debug)
         if results:
             site["_detected_platform"] = "url-pattern"
             log(f"  ↳ {site['name']}: extraction par URL pattern ({len(results)} candidat(s))", indent=2)
@@ -1185,7 +1232,7 @@ def scrape_category(session, site):
     #   - Sinon, on n'écrase les résultats CSS que si l'URL-pattern en trouve
     #     nettement plus (>1.5x plus), pour éviter de remplacer un bon résultat
     #     CSS par un URL-pattern qui inclurait des liens parasites.
-    url_pattern_results = _scrape_by_url_pattern(soup, url, site)
+    url_pattern_results = _scrape_by_url_pattern(soup, url, site, verbose=site_debug)
     if url_pattern_results:
         if not results:
             # CSS = 0 résultats utiles → on prend URL pattern

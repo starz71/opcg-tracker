@@ -118,7 +118,11 @@ sites:
   baron_collections:
     name: Baron Collections
     priority: A
-    category_url: "https://baroncollections.fr/collections/nouveautes-de-la-boutique"
+    # Page "Voir tout One Piece japonais" (la collection la plus complète,
+    # contient OP japonais, displays, mini tins, IB, etc.).
+    # L'ancienne URL "/collections/nouveautes-de-la-boutique" listait aussi
+    # les nouveautés Pokémon/DBZ qui polluaient les résultats.
+    category_url: "https://baroncollections.fr/collections/voir-toute-la-collection-one-piece-japonais"
     platform: shopify
 
   le_coin_des_barons:

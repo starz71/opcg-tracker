@@ -757,7 +757,18 @@ def _scrape_by_url_pattern(soup, base_url, site):
         re.compile(r"/produit-\d+-[a-z0-9_\-]+", re.I),     # Prestashop custom (Ultrajeux)
         re.compile(r"/fr/[^/]+/\d+-[a-z0-9_\-]+", re.I),    # Prestashop FR (Philibert)
         re.compile(r"/[a-z]{2}/\d+-[a-z0-9_\-]+", re.I),    # Prestashop multilingue
-        re.compile(r"^/\d+-[a-z0-9_\-]+\.html?$", re.I),    # Prestashop simple
+        # Prestashop générique : /{cat-slug}/{id}-{slug}.html
+        # Le slug catégorie peut contenir des tirets (ex Les Gentlemen :
+        # /one-piece-op15-aventure.../11315-one-piece-display.html)
+        re.compile(r"/[a-z][a-z0-9\-]+/\d+-[a-z0-9_\-]+\.html?$", re.I),
+        re.compile(r"^/\d+-[a-z0-9_\-]+\.html?$", re.I),    # Prestashop simple (URL racine)
+        # URL slug profonde (Le Coin des Barons) :
+        # /tradingcard-game/cartes-onepiece/display-one-piece/{slug-final}/
+        # On reconnaît : au moins 3 segments avant un slug-long avec tirets,
+        # et le slug-final contient un identifiant produit (set OPCG ou
+        # nom typique). Pour limiter les faux positifs, on exige que le
+        # slug-final fasse au moins 25 caractères (c'est le cas ici).
+        re.compile(r"/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]+/[a-z][a-z0-9\-]{20,}/?$", re.I),
         re.compile(r"\.html?$.*[a-z0-9_\-]+\.html?$", re.I), # autres .html (Mystic Ambre, etc.)
     ]
 
@@ -1168,16 +1179,24 @@ def scrape_category(session, site):
         log(f"({skipped_accessory} accessoires exclus : playmats/sleeves/classeurs)", indent=2)
 
     # ━━━ Stratégie hybride : on essaie aussi le fallback URL-pattern et on
-    # garde les résultats les plus nombreux. Cela permet de fixer les sites
-    # où nos sélecteurs CSS matchent du parasite (sous-éléments d'une vraie
-    # card), mais où l'extraction par URL distinctive trouve les vrais
-    # produits. Compromis pour la stabilité : on n'écrase les résultats CSS
-    # que si l'URL-pattern en trouve nettement plus (>1.5x plus).
+    # garde les résultats les plus nombreux. Logique :
+    #   - Si CSS retourne 0 résultats utiles : on prend l'URL pattern direct
+    #     (le sélecteur CSS a matché du parasite)
+    #   - Sinon, on n'écrase les résultats CSS que si l'URL-pattern en trouve
+    #     nettement plus (>1.5x plus), pour éviter de remplacer un bon résultat
+    #     CSS par un URL-pattern qui inclurait des liens parasites.
     url_pattern_results = _scrape_by_url_pattern(soup, url, site)
-    if url_pattern_results and len(url_pattern_results) > len(results) * 1.5:
-        site["_detected_platform"] = "url-pattern"
-        log(f"  ↳ {site['name']}: extraction par URL pattern ({len(url_pattern_results)} candidat(s), au lieu de {len(results)} via CSS)", indent=2)
-        return url_pattern_results
+    if url_pattern_results:
+        if not results:
+            # CSS = 0 résultats utiles → on prend URL pattern
+            site["_detected_platform"] = "url-pattern"
+            log(f"  ↳ {site['name']}: extraction par URL pattern ({len(url_pattern_results)} candidat(s), CSS=0)", indent=2)
+            return url_pattern_results
+        elif len(url_pattern_results) > len(results) * 1.5:
+            # URL pattern trouve nettement plus que CSS
+            site["_detected_platform"] = "url-pattern"
+            log(f"  ↳ {site['name']}: extraction par URL pattern ({len(url_pattern_results)} candidat(s), au lieu de {len(results)} via CSS)", indent=2)
+            return url_pattern_results
 
     return results
 

@@ -23,7 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Force Node 24 pour les actions JS (évite l'avertissement de
+  # dépréciation Node 20 — voir https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/)
+  # IMPORTANT : valeur entre guillemets pour être interprétée comme string,
+  # pas comme booléen YAML.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   news:

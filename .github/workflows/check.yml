@@ -50,6 +50,7 @@ jobs:
           TELEGRAM_TOPIC_BOOSTER:      ${{ secrets.TELEGRAM_TOPIC_BOOSTER }}
           TELEGRAM_TOPIC_DOUBLE_PACK:  ${{ secrets.TELEGRAM_TOPIC_DOUBLE_PACK }}
           TELEGRAM_TOPIC_AUTRES:       ${{ secrets.TELEGRAM_TOPIC_AUTRES }}
+          TELEGRAM_TOPIC_CURRENT_SET:  ${{ secrets.TELEGRAM_TOPIC_CURRENT_SET }}
         run: python tracker.py
 
       - name: Persist state and history

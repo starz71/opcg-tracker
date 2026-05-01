@@ -406,17 +406,44 @@ def is_preorder(card, availability_text="", title="", url=""):
 # ───── Détection du type de produit (Display, Booster, Starter, etc.) ─────
 PRODUCT_TYPE_RULES = [
     # (label,        liste de patterns regex à tester sur le titre lower-case,
-    #                liste de mots-clés DISQUALIFIANTS qui empêchent de matcher)
+    #                liste de mots-clés DISQUALIFIANTS qui empêchent de matcher (substrings)).
     # ⚠ ORDRE IMPORTANT : Display avant Booster (Booster Box = Display, pas Booster)
     ("case",     [r"\bcase\b", r"\bcarton\b",
                   r"12\s*x?\s*(display|booster\s*box)", r"lot de 12"], []),
-    ("display",  [r"\bdisplay\b", r"booster\s*box", r"bo[iî]te\s+de\s+booster", r"\bbb\b"], []),
+    ("display",  [
+        r"\bdisplay\b",
+        r"booster\s*box",
+        r"bo[iî]te\s+de\s+booster",
+        r"bo[iî]te\s+compl[èe]te",            # "boîte complète", "boite complete" (Fantastik)
+        r"bo[iî]te\s+de\s+\d+\s*boosters?",   # "boite de 24 boosters"
+        r"bo[iî]te\s+\d+\s*boosters?",        # "boite 24 boosters" (Ludisphère)
+        r"\bbb\b",
+    ], []),
     ("starter",  [r"\bstarter\b", r"\bdeck de d[ée]marrage\b", r"structure\s*deck",
                   r"\bsd\b"], []),
     ("box",      [r"\bgift\s*box\b", r"\bcoffret\b", r"\btournament\s*pack\b",
-                  r"\bbox\b"], ["booster"]),  # "Booster Box" → exclut box
-    ("booster",  [r"\bbooster\b", r"\bsachet\b", r"\bpack\b"],
-                 ["box", "display"]),
+                  r"\bbox\b"],
+                 # Disqualifiants : "Booster Box" → exclut box ; "boîte complète"
+                 # / "boîte 24 boosters" → ces "box" sont en fait des displays.
+                 ["booster", "boîte compl", "boite compl",
+                  "boîte de 24", "boite de 24",
+                  "boîte 24", "boite 24"]),
+    ("booster",  [
+        r"\bbooster\b",
+        r"\bsachet\b",
+        r"\bpack\b",
+        # Heuristiques Ultrajeux/sites Bandai : si on trouve un code de set
+        # combiné OPxx-EBxx ou OPxx-PRBxx ou DP-xx (Double Pack code) seuls
+        # dans le titre (sans "display" ni "boîte"), c'est par convention
+        # un booster ou pack simple Bandai.
+        r"\bop\s*\d{1,2}\s*-\s*eb\s*\d{1,2}\b",   # "OP15-EB04"
+        r"\bop\s*\d{1,2}\s*-\s*prb\s*\d{1,2}\b",  # "OP15-PRB02"
+        r"\bdp\s*-?\s*\d{1,2}\b",                 # "DP-10", "DP10"
+    ],
+                 # Disqualifiants : ce qui est une boîte/display, pas un booster simple.
+                 ["box", "display", "boîte compl", "boite compl",
+                  "boîte de 24", "boite de 24",
+                  "boîte 24", "boite 24"]),
 ]
 
 def detect_product_type(title):
@@ -431,6 +458,23 @@ def detect_product_type(title):
         for p in patterns:
             if re.search(p, t):
                 return label
+    # Heuristique de dernier recours : si le titre contient un code de set
+    # OPCG (OPxx, EBxx, PRBxx, DFxx) sans aucun mot identifiant un autre
+    # type, c'est par convention un booster simple sur la plupart des sites
+    # (Ultrajeux notamment). Ex: "OP14 Les Sept de la Mer d'Azur".
+    # On ne fait ça que si on a un set valide ET que le titre n'a aucun
+    # mot disqualifiant (display, box, coffret, starter, etc.).
+    has_set_code = bool(re.search(
+        r"\b(op|eb|prb|df|st|ac|ib)\s*-?\s*\d{1,2}\b", t
+    ))
+    has_disqualifier = any(w in t for w in [
+        "display", "box", "coffret", "starter", "deck",
+        "boîte", "boite", "case", "carton",
+        "tin", "playmat", "tapis", "sleeve", "binder",
+        "lot de", "set vol",
+    ])
+    if has_set_code and not has_disqualifier:
+        return "booster"
     return "other"
 
 
@@ -561,6 +605,9 @@ def group_listings_for_digest(listings):
         # "Triple pack" (rarement mais existe)
         elif any(kw in tlower for kw in ["triple pack", "triple-pack", "pack de 3 booster"]):
             ptype = "triple_pack"
+        # Code "DP-XX" Bandai (cas Ultrajeux : "OP15 DP-10 Adventure...")
+        elif re.search(r"\bdp\s*-?\s*\d{1,2}\b", tlower):
+            ptype = "double_pack"
 
         # Set bucket
         if set_code:
@@ -1860,6 +1907,10 @@ def _classify_listing_for_digest(listing):
                                       "lot de 2 booster", "double booster",
                                       "triple pack", "triple-pack",
                                       "pack de 3 booster"]):
+        return "double_pack"
+    # Heuristique : code "DP-XX" dans le titre = Double Pack Bandai
+    # (cas Ultrajeux : "OP15 DP-10 Adventure on Kami's Island")
+    if re.search(r"\bdp\s*-?\s*\d{1,2}\b", tlower):
         return "double_pack"
 
     # Re-détection du type produit (titre → fiable)

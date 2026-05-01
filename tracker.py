@@ -1894,6 +1894,51 @@ DIGEST_CATEGORIES = [
 ]
 
 
+# Catégorie spéciale "Set en cours" : ne filtre pas par product_type mais par
+# set_code. Inclut tous les produits dont le set est le plus récent
+# numériquement parmi les types principaux (OP, EB, PRB).
+# Cette catégorie est traitée EN PLUS des 5 autres (doublon assumé : un même
+# produit OP-16 apparaît dans le topic Display ET dans le topic Set en cours).
+CURRENT_SET_CATEGORY = {
+    "key": "_current_set",
+    "label": "Set en cours",
+    "title_emoji": "🔥",
+    "title_text": "SET EN COURS",
+    "secret_key": "telegram_topic_current_set",
+    # Types de set à inclure (pour chacun, on prend le numéro le plus grand)
+    "set_types": ["OP", "EB", "PRB"],
+}
+
+
+def _compute_current_sets(listings):
+    """Parcourt tous les listings, détecte le set_code de chacun via leur
+    titre, et renvoie la liste des set_codes 'en cours' (le plus récent
+    numériquement pour chaque type dans CURRENT_SET_CATEGORY['set_types']).
+
+    Exemple si on trouve OP-13/14/15/16, EB-03/04/05, PRB-02/03, DF-03 :
+        renvoie {'OP-16', 'EB-05', 'PRB-03'}
+    """
+    max_per_type = {}  # ex: {'OP': 16, 'EB': 5, 'PRB': 3}
+    for listing in listings:
+        title = listing.get("title", "")
+        set_code = detect_set(title)
+        if not set_code:
+            continue
+        # Format de set_code : "OP-15", "EB-03", "PRB-02"
+        try:
+            prefix, number = set_code.split("-")
+            number = int(number)
+        except (ValueError, AttributeError):
+            continue
+        if prefix not in CURRENT_SET_CATEGORY["set_types"]:
+            continue
+        if prefix not in max_per_type or number > max_per_type[prefix]:
+            max_per_type[prefix] = number
+
+    # Reconstruire les set_codes : "OP" + max → "OP-16"
+    return {f"{prefix}-{n:02d}" for prefix, n in max_per_type.items()}
+
+
 def _classify_listing_for_digest(listing):
     """Renvoie la 'key' de la catégorie où ce listing doit aller (display,
     case, booster, double_pack, ou _autres). Utilise la même logique que
@@ -2091,6 +2136,40 @@ def send_digest_per_category(config, alert, all_in_stock_listings, new_urls=None
         )
         if ok:
             fired_count += 1
+
+    # ━━━ Catégorie spéciale "Set en cours" (doublon assumé) ━━━
+    # On filtre les listings dont le set_code est dans les sets max
+    # numériquement (un par type OP/EB/PRB). Ces produits apparaissent
+    # AUSSI dans leur catégorie habituelle (display/booster/etc.).
+    current_set_topic = env_or(n, CURRENT_SET_CATEGORY["secret_key"])
+    if current_set_topic:
+        current_sets = _compute_current_sets(all_in_stock_listings)
+        if current_sets:
+            current_set_listings = [
+                l for l in all_in_stock_listings
+                if detect_set(l.get("title", "")) in current_sets
+            ]
+            log(f"  🔥 Sets en cours détectés : {sorted(current_sets)} "
+                f"({len(current_set_listings)} produit(s))", indent=2)
+            if current_set_listings:
+                state_subkey = f"{alert_key}::{CURRENT_SET_CATEGORY['key']}"
+                custom_title = (f"{CURRENT_SET_CATEGORY['title_emoji']} "
+                                  f"{CURRENT_SET_CATEGORY['title_text']} — "
+                                  f"{alert.get('name', 'Alerte')}")
+                ok = _send_digest_to_topic(
+                    config, alert, current_set_listings, new_urls, state,
+                    state_subkey=state_subkey,
+                    topic_thread_id=current_set_topic,
+                    title_override=custom_title,
+                )
+                if ok:
+                    fired_count += 1
+        else:
+            log(f"  🔥 Set en cours : aucun set OP/EB/PRB détecté", indent=2)
+    elif _compute_current_sets(all_in_stock_listings):
+        # On a des produits mais le secret n'est pas configuré
+        log(f"  ⚠️  Set en cours : produits détectés mais "
+            f"secret 'TELEGRAM_TOPIC_CURRENT_SET' non défini, skip", indent=2)
 
     log(f"  📊 Digests par catégorie : {fired_count} catégorie(s) traitée(s)", indent=2)
     return fired_count > 0
